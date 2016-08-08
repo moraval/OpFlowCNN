@@ -10,7 +10,7 @@ function calculate_loss (image_estimate, image_gt)
   return total_loss, losses
 end
 
--- is it local or global??
+-- is it local or global variation??
 function calculate_variation(optical_flow)
 
   return variation
