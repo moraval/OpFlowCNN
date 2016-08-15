@@ -8,6 +8,7 @@ outdirname = sys.argv[2]
 batchsize = int(sys.argv[3])
 
 files = os.listdir(dirname)
+files.sort()
 
 # naming of the files in the directory - will be different for every one
 # changing NAMING to: in01a + in01b

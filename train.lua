@@ -6,10 +6,11 @@ require('cunn')
 require('optim')
 require('paths')
 require('nngraph')
+require 'nn'
 
 require 'optim'
 --require 'dataset'
-require 'OpticalFlowCriterion'
+require 'nn/OpticalFlowCriterion'
 require 'model/model.lua'
 ----------------------------------------------------------------------
 --local model_dir = "model"
@@ -35,8 +36,8 @@ local batchSize = arg[2]
 -- WHICH ONE is CORRECT?
 --local trainSet = torch.load(data_dir .. 'train_data.t7', 'ascii')
 
-local batchInputs = torch.load(data_dir .. 'train_data.t7', 'ascii')
-local batchLabels = torch.load(data_dir .. 'train_labels.t7', 'ascii')
+local batchInputs = torch.load(data_dir .. 'train_data_small.t7', 'ascii')
+local batchLabels = torch.load(data_dir .. 'train_labels_small.t7', 'ascii')
 
 --local batchInputs = {}
 --local batchLabels = {}
@@ -49,31 +50,39 @@ local batchLabels = torch.load(data_dir .. 'train_labels.t7', 'ascii')
 ----------------------------------------------------------------------
 
 local criterion = nn.OpticalFlowCriterion
+--local criterion = nn.ClassNLLCriterion
 local params, gradParams = model:getParameters() -- to flatten all the matrices inside the model
-local optimState = {learningRate=0.1}
+local epochs = arg[3]
+local optimState = {}
 
-for epoch=1,5 do
+for epoch=1,epochs do
   local function feval(params)
     gradParams:zero()
-    
-    print("starting")
-    
+
+    print("\nSTARTING EPOCH "..epoch)
+
     local outputs = model:forward(batchInputs)
-    
-    print("forward done")
-    
+
+    print("\nforward done")
+
     local loss = criterion:forward(outputs, batchInputs)
     local dloss_doutput = criterion:backward(outputs, batchInputs)
-    
-    print("loss " .. loss)
-    print('example of gradient: ')
-    print(dloss_doutput[1][1][75][200]..', '..dloss_doutput[1][1][76][200]..', '..dloss_doutput[1][1][77][200])
-    print(dloss_doutput[2][1][100][520]..', '..dloss_doutput[2][1][100][521]..', '..dloss_doutput[2][1][1][522])
-    print(dloss_doutput[1][2][150][800]..', '..dloss_doutput[1][2][151][801]..', '..dloss_doutput[1][2][152][802])
-    
+
+    print("\nLOSS " .. loss)
+
+    my_string = ''
+    for r=1,94,30 do
+      for s=1,311,60 do
+        my_string = my_string..dloss_doutput[1][1][r][s]..' '
+      end
+    end
+    print('grads 1')
+    print(my_string)
+
     model:backward(batchInputs, dloss_doutput)
     return loss,gradParams
   end
-  optim.sgd(feval, params, optimState)
+  optim.adadelta(feval, params, optimState)
+--  optim.adadelta(feval, params)
 end
 
