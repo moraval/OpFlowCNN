@@ -33,6 +33,8 @@ function OpFlowCriterion:updateOutput (flows, images)
   
   differences = image_estimate - targets
   
+  targets = nil
+  
   self.output = torch.sum(torch.abs(image_estimate - targets))
   return self.output
 end
@@ -101,13 +103,14 @@ function OpFlowCriterion:updateGradInput (flows, images)
 
     if (epoch % 5 == 0 or epoch == 1) then
       if (i==1) then
-        image.save('new_img'..i..'_'..epoch..'.png', image_estimate_small)
+        image.save('new_img'..i..'_'..epoch..'.png', image_estimate)
       end
     end
 
     local flow_enlarged = torch.Tensor(2, size1 + 2, size2 + 2):fill(0)
     flow_enlarged:sub(1,1, 2, size1+1, 2, size2+1):copy(flows[i][1])
     flow_enlarged:sub(2,2, 2, size1+1, 2, size2+1):copy(flows[i][2])
+    flow_enlarged = nil
 
     for r=2,size1+1 do
       for s=2,size2+1 do
