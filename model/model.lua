@@ -1,7 +1,7 @@
 require 'torch'   -- torch
 require 'image'   -- for image transforms
 local nn = require 'nn'      -- provides all sorts of trainable modules/layers
-require 'cunn'
+--require 'cunn'
 
 local function BNInit(name)
   for k,v in pairs(model:findModules(name)) do
@@ -56,72 +56,69 @@ function create_model()
     L:add(nn.JoinTable(dim))      -- Finally, the tables are joined together and output, along dim
     return L
   end
-
-----------------------------------------------------------------------
-
-  local start_chan = 2
-  local L1_chan = start_chan
-
-----------------------------------------------------------------------
--- layers inside layers - so that I can create the shortcuts (viz. https://github.com/facebook/fb.resnet.torch/blob/master/models/resnet.lua)
-  model = nn.Sequential()
-
-  local function inner(nIn)
+  
+    local function inner(nIn)
     innerL = nn.Sequential()
-    innerL:add(conv(nIn, nIn*4, 3, 1, 1, 0))
-    innerL:add(deconv(nIn*4, nIn, 3, 1, 2))
---    innerL:add(deconv(nIn*2, nIn, 3, 1, -1))
+    innerL:add(conv(nIn, nIn*2, 3, 1, 1, 0))
+    innerL:add(deconv(nIn*2, nIn, 3, 1, 2))
     return innerL
   end
 
+----------------------------------------------------------------------
+
+  start_chan = 2
+
+----------------------------------------------------------------------
+-- layers inside layers - so that I can create the shortcuts (viz. https://github.com/facebook/fb.resnet.torch/blob/master/models/resnet.lua)
+
+  model = nn.Sequential()
+
+  local L1_chan = start_chan * 6
+  local L2_chan = L1_chan * 6
+  local L3_chan = L2_chan * 4
+
   local L = nn.Sequential()
-  L:add(conv(L1_chan, L1_chan*4, 3, 1, 1, 0))
-  L:add(inner(L1_chan*4))
-  L:add(deconv(L1_chan*4, L1_chan, 3, 1, 2))
+  L:add(conv(L1_chan, L2_chan, 3, 1, 1, 0))
+  L:add(inner(L2_chan))
+  L:add(deconv(L2_chan, L1_chan, 3, 1, 2))
 
   local LcS = combine(
     L,
     shortcut())
 
-model:add(LcS)
---  local L1 = nn.Sequential()
---  L1:add(conv(start_chan, L1_chan, 3, 1, 0))
---  L1:add(LcS)
-----  L1:add(deconv(L1_chan, start_chan, 3, 1, -2))
---  L1:add(deconv(L1_chan, start_chan, 3, 1, -1))
+--model:add(LcS)
 
---  local L1cS1 = combine(
---    L1,
---    shortcut())
 
---  model:add(L1cS1)
+  local L1 = nn.Sequential()
+  L1:add(conv(start_chan, L1_chan, 3, 1, 1, 0))
+--  L1:add(conv(L1_chan, L2_chan, 3, 1, 1, 0))
+  L1:add(LcS)
+--  L1:add(deconv(L2_chan, L1_chan, 3, 1, 2))
+  L1:add(deconv(L1_chan, start_chan, 3, 1, 2))
+
+  local L1cS1 = combine(
+    L1,
+    shortcut())
+
+  model:add(L1cS1)
+
+  local nIn = start_chan
+  local nOut = 1
+
 
 -- last layer: creating 2 paths and joining them then together
---  local layer1 = nn.Sequential()
---  layer1:add(nn.SpatialConvolution(nIn,nOut,1,1,1,1))
+  local layer1 = nn.Sequential()
+  layer1:add(nn.SpatialConvolution(nIn,nOut,1,1,1,1))
 --  layer1:add(nn.ReLU(true))
+  layer1:add(nn.Tanh())
 
---  local layer2 = nn.Sequential()
---  layer2:add(nn.SpatialConvolution(nIn,nOut,1,1,1,1))
---  layer2:add(nn.ReLU(true))
+  local layer2 = nn.Sequential()
+  layer2:add(nn.SpatialConvolution(nIn,nOut,1,1,1,1))
+  --layer2:add(nn.ReLU(true))
+  layer2:add(nn.Tanh())
 
---  model:add(final_layer(layer1, layer2))
+  model:add(final_layer(layer1, layer2))
 
---  local nIn = start_chan
---  local nOut = 1
-  
-  -- last layer: creating 2 paths and joining them then together
---  local comb_to_one = nn.Sequential()
---  comb_to_one:add(nn.SpatialConvolution(nIn,nOut,1,1,1,1))
---  comb_to_one:add(nn.ReLU(true))
-
---  local make_u_v = nn.Sequential()
---  make_u_v:add(nn.SpatialConvolution(nOut,2,1,1,1,1))
---  make_u_v:add(nn.ReLU(true))
-
---  model:add(comb_to_one)
---  model:add(make_u_v)
-  model:add(nn.Tanh())
   BNInit('nn.SpatialBatchNormalization')
 -----------------------------------------------------------------------
   return model

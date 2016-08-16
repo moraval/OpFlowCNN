@@ -1,4 +1,6 @@
 local OpFlowCriterion, parent = torch.class('nn.OpticalFlowCriterion', 'nn.Criterion')
+--local batchInputsFull = torch.load(data_dir .. 'train_data_small.t7', 'ascii')
+
 require 'image'
 batchSize = 24
 epoch = 5
@@ -30,12 +32,12 @@ function OpFlowCriterion:updateOutput (flows, images)
     image_estimate[i] = image.warp(images[i][1], flows[i], 'bilinear', true)
     targets[i] = images[i][2]
   end
-  
+
   differences = image_estimate - targets
-  
+
   targets = nil
-  
-  self.output = torch.sum(torch.abs(image_estimate - targets))
+
+  self.output = torch.sum(torch.abs(differences))
   return self.output
 end
 
@@ -103,22 +105,22 @@ function OpFlowCriterion:updateGradInput (flows, images)
 
     if (epoch % 5 == 0 or epoch == 1) then
       if (i==1) then
-        image.save('new_img'..i..'_'..epoch..'.png', image_estimate)
+--        image.save('results/new_img'..i..'_'..epoch..'.png', image_estimate[i])
+        image.save('my_flows/flow_img'..i..'_'..epoch..'.png', image_estimate[i]*255-start_image*255)
       end
     end
 
     local flow_enlarged = torch.Tensor(2, size1 + 2, size2 + 2):fill(0)
     flow_enlarged:sub(1,1, 2, size1+1, 2, size2+1):copy(flows[i][1])
     flow_enlarged:sub(2,2, 2, size1+1, 2, size2+1):copy(flows[i][2])
-    flow_enlarged = nil
 
     for r=2,size1+1 do
       for s=2,size2+1 do
-      
+
         of_r, of_s = torch.round(flow_enlarged[1][r][s] + r), torch.round(flow_enlarged[2][r][s] + s)
         reg = regularize(flow_enlarged, r, s)
         if (of_r > 0 and of_r <= size1) and (of_s > 0 and of_s <= size2) then 
-        
+
 --          derivatives in the direction of U and V
           dirU = torch.abs(image_estimate[i][1][math.min(of_r+1,size1)][of_s] - image_estimate[i][1][math.max(of_r-1,1)][of_s])
           dirV = torch.abs(image_estimate[i][1][of_r][math.min(of_s+1,size2)] - image_estimate[i][1][of_r][math.max(of_s-1,1)])
@@ -141,6 +143,36 @@ function OpFlowCriterion:updateGradInput (flows, images)
 end
 
 
+function avgFlows(flow)
+  -- returns avg flows over different scales
+  avg_flows = torch.Tensor(3, channels, size1, size2)
+  avg_flows[1] = flow
 
+--  50%
+  step = 2
+  for i = 1,size1,step do
+    for j = 1,size2,step do
+      avg_flows[2]:sub(1,1,i,i+step,j,j+step):fill(flow:sub(1,1,i,i+step,j,j+step):sum()/(step*step))
+      avg_flows[2]:sub(2,2,i,i+step,j,j+step):fill(flow:sub(2,2,i,i+step,j,j+step):sum()/(step*step))
+    end
+  end
 
-
+--  25%
+  step = 4
+  for i = 1,size1,step do
+    for j = 1,size2,step do
+      avg_flows[2]:sub(1,1,i,i+step,j,j+step):fill(flow:sub(1,1,i,i+step,j,j+step):sum()/(step*step))
+      avg_flows[2]:sub(2,2,i,i+step,j,j+step):fill(flow:sub(2,2,i,i+step,j,j+step):sum()/(step*step))
+    end
+  end
+--  12.5%
+  step = 8
+  for i = 1,size1,step do
+    for j = 1,size2,step do
+      avg_flows[2]:sub(1,1,i,i+step,j,j+step):fill(flow:sub(1,1,i,i+step,j,j+step):sum()/(step*step))
+      avg_flows[2]:sub(2,2,i,i+step,j,j+step):fill(flow:sub(2,2,i,i+step,j,j+step):sum()/(step*step))
+    end
+  end
+  
+  return avg_flows
+end

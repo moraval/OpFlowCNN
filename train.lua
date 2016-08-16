@@ -1,7 +1,7 @@
 -- training the model
 require('cutorch')
 require('nn')
-require('cunn')
+--require('cunn')
 --require('cudnn')
 require('optim')
 require('paths')
@@ -12,7 +12,7 @@ require 'optim'
 --require 'dataset'
 --require 'nn/OpticalFlowCriterion'
 require 'OpticalFlowCriterion'
-require 'model/model.lua'
+require './model/model.lua'
 ----------------------------------------------------------------------
 --local model_dir = "model"
 
@@ -37,8 +37,8 @@ local batchSize = arg[2]
 -- WHICH ONE is CORRECT?
 --local trainSet = torch.load(data_dir .. 'train_data.t7', 'ascii')
 
-local batchInputs = torch.load(data_dir .. 'train_data_small.t7', 'ascii')
-local batchLabels = torch.load(data_dir .. 'train_labels_small.t7', 'ascii')
+local batchInputs = torch.load(data_dir .. 'train_data_small.t7', 'ascii')/255
+--local batchLabels = torch.load(data_dir .. 'train_labels_small.t7', 'ascii')
 
 --local batchInputs = {}
 --local batchLabels = {}
@@ -67,9 +67,10 @@ for epoch=1,epochs do
     print("\nforward done")
 
     local loss = criterion:forward(outputs, batchInputs)
-    local dloss_doutput = criterion:backward(outputs, batchInputs)
-
+    
     print("\nLOSS " .. loss)
+    
+    local dloss_doutput = criterion:backward(outputs, batchInputs)
 
     my_string = ''
     for r=1,94,30 do
@@ -84,6 +85,5 @@ for epoch=1,epochs do
     return loss,gradParams
   end
   optim.adadelta(feval, params, optimState)
---  optim.adadelta(feval, params)
 end
 
