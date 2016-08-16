@@ -10,7 +10,8 @@ require 'nn'
 
 require 'optim'
 --require 'dataset'
-require 'nn/OpticalFlowCriterion'
+--require 'nn/OpticalFlowCriterion'
+require 'OpticalFlowCriterion'
 require 'model/model.lua'
 ----------------------------------------------------------------------
 --local model_dir = "model"
