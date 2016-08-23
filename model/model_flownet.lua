@@ -2,8 +2,8 @@ require 'torch'   -- torch
 require 'image'   -- for image transforms
 require('cutorch')
 require('cunn')
-
-local nn = require 'nn' 
+--require('cudnn')
+local nn = require 'nn'      -- provides all sorts of trainable modules/layers
 
 local function BNInit(name)
   for k,v in pairs(model:findModules(name)) do
@@ -14,21 +14,23 @@ end
 --torch.setdefaulttensortype('torch.FloatTensor')
 ----------------------------------------------------------------------
 
-function create_model(channels, size1, size2)
+function create_model()
 
-  local function conv(nIn, nOut, k, s, p)
+  local function conv(nIn, nOut, k, s, p, pP)
     local layer = nn.Sequential()
     layer:add(nn.SpatialConvolution(nIn,nOut,k,k,s,s,p,p))
     layer:add(nn.SpatialBatchNormalization(nOut))
     layer:add(nn.ReLU(true))
+    poolModule = nn.SpatialMaxPooling(k,k,s,s,pP,pP)
+    layer:add(poolModule)
     return layer
   end
 
   local function deconv(nIn,nOut,k,s,p)
     local layer = nn.Sequential()
     layer:add(nn.SpatialConvolution(nIn,nOut,k,k,s,s,p,p)) 
+    layer:add(nn.ReLU(true)) -- not sure if it should be here or not 
     layer:add(nn.SpatialBatchNormalization(nOut))
-    layer:add(nn.ReLU(true))
     return layer
   end
 
@@ -47,9 +49,9 @@ function create_model(channels, size1, size2)
   end
 
   function final_layer(L1, L2)
-    local L = nn.Sequential()     -- Create a network that takes a Tensor as input
+    local L = nn.Sequential()         -- Create a network that takes a Tensor as input
     c = nn.ConcatTable()          -- The same Tensor goes through two different Linear
-    c:add(L1)                     -- Layers in Parallel
+    c:add(L1)       -- Layers in Parallel
     c:add(L2)
     L:add(c)
     local dim = 2
@@ -57,28 +59,64 @@ function create_model(channels, size1, size2)
     return L
   end
 
+  local function inner(nIn)
+    innerL = nn.Sequential()
+    innerL:add(conv(nIn, nIn*2, 3, 1, 1, 0))
+    innerL:add(deconv(nIn*2, nIn, 3, 1, 2))
+    return innerL
+  end
+
+----------------------------------------------------------------------
+
+  start_chan = 6
+
 ----------------------------------------------------------------------
 -- layers inside layers - so that I can create the shortcuts (viz. https://github.com/facebook/fb.resnet.torch/blob/master/models/resnet.lua)
+
   model = nn.Sequential()
 
-  local L1_chan = 36
-  local L2_chan = 72
-  local L3_chan = 144
+  local L1_chan = start_chan * 6
+  local L2_chan = L1_chan * 6
+  local L3_chan = L2_chan * 2
 
---  (nIn, nOut, k, s, p)
-  model:add(conv(channels*2, L1_chan, 7, 2, 2))
-  model:add(conv(L1_chan, L2_chan, 3, 2, 1))
-  model:add(conv(L2_chan, L3_chan, 3, 1, 1))
-  model:add(conv(L3_chan, 18, 1, 1, 0))
+  local L = nn.Sequential()
+  L:add(conv(L1_chan, L2_chan, 3, 1, 1, 0))
+  L:add(conv(L2_chan, L3_chan, 3, 1, 1, 0))
+  L:add(inner(L3_chan))
+  L:add(deconv(L3_chan, L2_chan, 3, 1, 2))
+  L:add(deconv(L2_chan, L1_chan, 3, 1, 2))
 
-  model:add(nn.View(18*23*78))
+  local LcS = combine(
+    L,
+    shortcut())
 
-  model:add(nn.Linear(18*23*78, 6*23*78)) -- 10 input, 25 hidden units
-  model:add(nn.Tanh()) -- some hyperbolic tangent transfer function
-  model:add(nn.Linear(6*23*78, 2*23*78)) -- 1 output
+  local L1 = nn.Sequential()
+  L1:add(conv(start_chan, L1_chan, 3, 1, 1, 0))
+  L1:add(LcS)
+  L1:add(deconv(L1_chan, start_chan, 3, 1, 2))
 
-  model:add(nn.View(2,23,78))
+  local L1cS1 = combine(
+    L1,
+    shortcut())
 
+  model:add(L1cS1)
+
+  local nIn = start_chan
+  local nOut = 1
+
+
+-- last layer: creating 2 paths and joining them then together
+  local layer1 = nn.Sequential()
+  layer1:add(nn.SpatialConvolution(nIn,nOut,1,1,1,1))
+--  layer1:add(nn.ReLU(true))
+  layer1:add(nn.Tanh())
+
+  local layer2 = nn.Sequential()
+  layer2:add(nn.SpatialConvolution(nIn,nOut,1,1,1,1))
+  --layer2:add(nn.ReLU(true))
+  layer2:add(nn.Tanh())
+
+  model:add(final_layer(layer1, layer2))
   model:cuda()
   BNInit('nn.SpatialBatchNormalization')
 -----------------------------------------------------------------------
