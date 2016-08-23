@@ -9,7 +9,6 @@ batchsize = int(sys.argv[3])
 
 
 files = os.listdir(dirname)
-print(size(files))
 files.sort()
 
 # naming of the files in the directory - will be different for every one

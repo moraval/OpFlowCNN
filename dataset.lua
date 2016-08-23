@@ -13,18 +13,9 @@ local function create_train_dataset(input_dir, train_dir, batchSize, channels, s
     return s
   end
 
---  train_data = torch.Tensor(batchSize, channels*2, size1, size2)
---  labels = torch.Tensor(batchSize, channels, size1, size2)
-
 --  train_data = torch.Tensor(batchSize, channels * 2, size1, size2)
-  train_data = torch.Tensor(96, 3 * 2, 188, 621)
+  train_data = torch.Tensor(128, 6, 94, 311)
 --  labels = torch.Tensor(batchSize, channels, size1, size2)
-  
---  train_data = torch.Tensor(batchSize, 2, 375, 1242)
---  labels = torch.Tensor(batchSize, 1, 375, 1242)
-
---  train_data = {}
---  labels = {}
 
   for idx = 1,batchSize do
     img_1 = string.format(input_dir .. 'in' .. zfill(idx..'',2) .. "a.png")
@@ -33,7 +24,8 @@ local function create_train_dataset(input_dir, train_dir, batchSize, channels, s
     im2 = image.load(img_2)
 
     data = torch.cat(im1, im2, 1)
-    train_data[idx] = data
+    train_data[idx]:sub(1,3,1,1):copy(im1)
+    train_data[idx]:sub(1,3,2,2):copy(im2)
 --    labels[idx] = im2
 
   end

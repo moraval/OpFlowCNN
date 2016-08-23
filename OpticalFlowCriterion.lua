@@ -1,20 +1,30 @@
 local OpFlowCriterion, parent = torch.class('nn.OpticalFlowCriterion', 'nn.Criterion')
---local batchInputsFull = torch.load(data_dir .. 'train_data_small.t7', 'ascii')
 
 require 'image'
+require 'sys'
+
 batchSize = 24
-epoch = 5
+epoch = 1
+channels = 3
+printFlow = false
+directory = ''
+alfa = 0.1
+normalize = 0
 
-alfa = 0.2
-
-norm1 = 1
-norm2 = 1
-
-function OpFlowCriterion:__init()
+function OpFlowCriterion:__init(dir, chan, batchS, printF, a, norm)
   parent.__init(self)
+  directory = dir
+  channels = chan
+--  batchSize = batchS
+  printFlow = printF
+  alfa = a
+  print_A = '2'
+  normalize = norm
 end
+--
 
 
+--
 --input = optical flow (values for u,v), target = image
 --function OpFlowCriterion:updateOutput (batchSize, flows, images)
 function OpFlowCriterion:updateOutput (flows, images)
@@ -23,156 +33,175 @@ function OpFlowCriterion:updateOutput (flows, images)
   size1 = images[1][1]:size(1)
   size2 = images[1][1]:size(2)
 
-  image_estimate = torch.Tensor(batchSize, 1, size1, size2)
-  local targets = torch.Tensor(batchSize, 1, size1, size2)
+  image_estimate = torch.Tensor(batchSize, size1, size2)
+
+  local images_l = torch.Tensor(batchSize, size1, size2)
 
   for i=1,batchSize do
-----    warp the optical flow into image
-----    image_estimate = image.warp(images[i][1], flows[i])
-    image_estimate[i] = image.warp(images[i][1], flows[i], 'bilinear', true)
-    targets[i] = images[i][2]
+    local target = torch.Tensor(channels, size1, size2):copy(images:sub(i,i,channels + 1,channels + channels))
+    local image_estimate_l = image.warp(target, flows[i], 'bilinear', true)
+
+    if (i==1) then save_res(flows[1], image_estimate_l) end
+
+    image_estimate[i]:copy(image_estimate_l:sum(1))
+    images_l[i]:copy(images:sub(i,i,1, channels):sum(2))
   end
 
-  differences = image_estimate - targets
+  differences = image_estimate - images_l
 
-  targets = nil
-
-  self.output = torch.sum(torch.abs(differences))
+  self.output = torch.abs(differences):sum()
   return self.output
 end
 
 --
 
 
-function regularize(flow, r, s)
-  my_sum = torch.Tensor(2)
 
-  local help = flow:sub(1,1,r-1,r+1,s-1,s+1)
-  my_sum[1] = help:sum() - help[1][2][2]
-
-  help = flow:sub(2,2,r-1,r+1,s-1,s+1)
-  my_sum[2] = help:sum() - help[1][2][2]
-
-  return my_sum/8
-end
---
---input = optical flow (values for u,v), target = image
+-- calculating error according to all outputs
+-- inputs - optical flow (values for u,v), target = image
 function OpFlowCriterion:updateGradInput (flows, images)
 
   self.gradInput = torch.Tensor()
   self.gradInput:resizeAs(flows):zero()
 
   for i=1,batchSize do
-    local start_image = images[i][1]
-    local target = images[i][2]
 
-    size1 = target:size(1)
-    size2 = target:size(2)
+    local flow = torch.Tensor():resizeAs(flows[i]):copy(flows[i])
+    local sum_flows = torch.Tensor():resizeAs(flow):fill(0)
+--    local target = images:sub(i,i,channels + 1,channels + channels)
+    local target = torch.Tensor(channels, size1, size2):copy(images:sub(i,i,channels + 1,channels + channels))
 
-    if (epoch % 5 == 0 or epoch == 1) then
-      if (i==1) then
-        my_string = ''
-        for r=1,size1,30 do
-          for s=1,size2,60 do
-            my_string = my_string..flows[i][1][r][s]..' '
-          end
-        end
-        print('before normalization')
-        print(my_string)
-      end
-    end
+    local flow_shift = torch.Tensor():resizeAs(flow)
 
-    -- NORMALIZE
-    flows[i][1] = flows[i][1] *norm1
-    flows[i][2] = flows[i][2] *norm2
+    flow_shift:fill(0)
+    flow_shift:sub(1,1,1,size1-1):copy(flow:sub(1,1,2,size1))
+    flow_shift:sub(2,2,1,size1-1):copy(flow:sub(2,2,2,size1))
+    sum_flows = sum_flows + flow_shift
 
-    if (epoch % 5 == 0 or epoch == 1) then
-      if (i==1) then    
-        my_string = ''
-        my_string_2 = ''
-        for r=1,size1,30 do
-          for s=1,size2,60 do
-            my_string = my_string..flows[i][1][r][s]..' '
-          end
-        end
-        print('after normalization')
-        print(my_string)
-      end
-    end
+    flow_shift:fill(0)
+    flow_shift:sub(1,1,2,size1):copy(flow:sub(1,1,1,size1-1))
+    flow_shift:sub(2,2,2,size1):copy(flow:sub(2,2,1,size1-1))
+    sum_flows = sum_flows + flow_shift
 
---    local image_estimate_small = image.warp(start_image, flows[i], 'bilinear', true)
---    image_estimate_small = image.warp(start_image, flows)
+    flow_shift:fill(0)
+    flow_shift:sub(2,2,1,size1,1,size2-1):copy(flow:sub(2,2,1,size1,2,size2))
+    flow_shift:sub(1,1,1,size1,1,size2-1):copy(flow:sub(1,1,1,size1,2,size2))
+    sum_flows = sum_flows + flow_shift
 
-    if (epoch % 5 == 0 or epoch == 1) then
-      if (i==1) then
---        image.save('results/new_img'..i..'_'..epoch..'.png', image_estimate[i])
-        image.save('my_flows/flow_img'..i..'_'..epoch..'.png', image_estimate[i]*255-start_image*255)
-      end
-    end
+    flow_shift:fill(0)
+    flow_shift:sub(2,2,1,size1,2,size2):copy(flow:sub(2,2,1,size1,1,size2-1))
+    flow_shift:sub(1,1,1,size1,2,size2):copy(flow:sub(1,1,1,size1,1,size2-1))
+    sum_flows = sum_flows + flow_shift
 
-    local flow_enlarged = torch.Tensor(2, size1 + 2, size2 + 2):fill(0)
-    flow_enlarged:sub(1,1, 2, size1+1, 2, size2+1):copy(flows[i][1])
-    flow_enlarged:sub(2,2, 2, size1+1, 2, size2+1):copy(flows[i][2])
+-- in diagonal directions
+    flow_shift:fill(0)
+    flow_shift:sub(1,1,2,size1,2,size2):copy(flow:sub(1,1,1,size1-1,1,size2-1))
+    flow_shift:sub(2,2,2,size1,2,size2):copy(flow:sub(2,2,1,size1-1,1,size2-1))
+    sum_flows = sum_flows + flow_shift
 
-    for r=2,size1+1 do
-      for s=2,size2+1 do
+    flow_shift:fill(0)
+    flow_shift:sub(1,1,1,size1-1,1,size2-1):copy(flow:sub(1,1,2,size1,2,size2))
+    flow_shift:sub(2,2,1,size1-1,1,size2-1):copy(flow:sub(2,2,2,size1,2,size2))
+    sum_flows = sum_flows + flow_shift
 
-        of_r, of_s = torch.round(flow_enlarged[1][r][s] + r), torch.round(flow_enlarged[2][r][s] + s)
-        reg = regularize(flow_enlarged, r, s)
-        if (of_r > 0 and of_r <= size1) and (of_s > 0 and of_s <= size2) then 
+    flow_shift:fill(0)
+    flow_shift:sub(1,1,1,size1-1,2,size2):copy(flow:sub(1,1,2,size1,1,size2-1))
+    flow_shift:sub(2,2,1,size1-1,2,size2):copy(flow:sub(2,2,2,size1,1,size2-1))
+    sum_flows = sum_flows + flow_shift
 
---          derivatives in the direction of U and V
-          dirU = torch.abs(image_estimate[i][1][math.min(of_r+1,size1)][of_s] - image_estimate[i][1][math.max(of_r-1,1)][of_s])
-          dirV = torch.abs(image_estimate[i][1][of_r][math.min(of_s+1,size2)] - image_estimate[i][1][of_r][math.max(of_s-1,1)])
+    flow_shift:fill(0)
+    flow_shift:sub(1,1,2,size1,1,size2-1):copy(flow:sub(1,1,1,size1-1,2,size2))
+    flow_shift:sub(2,2,2,size1,1,size2-1):copy(flow:sub(2,2,1,size1-1,2,size2))
+    sum_flows = sum_flows + flow_shift
 
-          self.gradInput[i][1][r-1][s-1] = differences[i][1][of_r][of_s] * dirU
-          self.gradInput[i][2][r-1][s-1] = differences[i][1][of_r][of_s] * dirV
-        end
-        self.gradInput[i][1][r-1][s-1] = self.gradInput[i][1][r-1][s-1] + alfa*reg[1]
-        self.gradInput[i][2][r-1][s-1] = self.gradInput[i][2][r-1][s-1] + alfa*reg[2]
-      end
-    end
+    flow_shift:copy(flow)
+    flow_shift[1]:copy(flow_shift[1] + 1)
+    local plus_1_U = image.warp(target, flow_shift, 'bilinear', true):sum(1)
+    flow_shift[1]:copy(flow_shift[1] - 2)
+    local minus_1_U = image.warp(target, flow_shift, 'bilinear', true):sum(1)
+
+--    local orig = image.warp(target, flow, 'bilinear', true)
+--    image.save('results/'..directory..'/target'..i..'.png', target*normalize)
+--    image.save('results/'..directory..'/orig'..i..'.png', orig*normalize)
+--    image.save('results/'..directory..'/plus_1_U'..i..'.png', plus_1_U*normalize)
+--    image.save('results/'..directory..'/minus_1_U'..i..'.png', minus_1_U*normalize)
+
+    local gradU = (minus_1_U - plus_1_U)/2
+
+    flow_shift[1]:copy(flow_shift[1] + 1)
+
+    flow_shift[2]:copy(flow_shift[2] + 1)
+    local plus_1_V = image.warp(target, flow_shift, 'bilinear', true):sum(1)    
+    flow_shift[2]:copy(flow_shift[2] - 2)
+    local minus_1_V = image.warp(target, flow_shift, 'bilinear', true):sum(1)
+
+--    image.save('results/'..directory..'/plus_1_V'..i..'.png', plus_1_V*normalize)
+--    image.save('results/'..directory..'/minus_1_V'..i..'.png', minus_1_V*normalize)
+
+    local gradV = (minus_1_V - plus_1_V)/2
+
+    -- gradients in u,v direction
+    self.gradInput[i][1] = torch.cmul(differences[i], gradU[1])
+    self.gradInput[i][2] = torch.cmul(differences[i], gradV[1])
+
+--    print('differences')
+--    print(differences:sub(1,1,1,9,1,9))
+--    print('plus_1_U')
+--    print(plus_1_U:sub(1,1,10,19,10,19))
+--    print('minus_1_U')
+--    print(minus_1_U:sub(1,1,10,19,10,19))
+
+--    print('plus_1_V')
+--    print(plus_1_V:sub(1,1,10,19,10,19))
+--    print('minus_1_V')
+--    print(minus_1_V:sub(1,1,10,19,10,19))
+
+--    print('gradU')
+--    print(gradU:sub(1,1,1,9,1,9))
+--    print('gradV')
+--    print(gradV:sub(1,1,1,9,1,9))
+--    print(differences:size())
+--    print(self.gradInput[i][1][5][5])
+--    print("END!!!!!")
+--    break
+
+    -- regularize
+    self.gradInput[i] = (1-alfa)*self.gradInput[i] + alfa*sum_flows
+--    print('DONE')
   end
 
   gradSums = self.gradInput:sum(1)/batchSize
   for i=1,batchSize do
     self.gradInput[i]:copy(gradSums)
   end
-  epoch = epoch + 5
+  epoch = epoch + 1
   return self.gradInput
 end
+--
 
 
-function avgFlows(flow)
-  -- returns avg flows over different scales
-  avg_flows = torch.Tensor(3, channels, size1, size2)
-  avg_flows[1] = flow
-
---  50%
-  step = 2
-  for i = 1,size1,step do
-    for j = 1,size2,step do
-      avg_flows[2]:sub(1,1,i,i+step,j,j+step):fill(flow:sub(1,1,i,i+step,j,j+step):sum()/(step*step))
-      avg_flows[2]:sub(2,2,i,i+step,j,j+step):fill(flow:sub(2,2,i,i+step,j,j+step):sum()/(step*step))
+--
+function save_res(flow, img)
+  if (epoch % 10 == 0) and printFlow then
+    printepoch = epoch/4
+    local out1 = assert(io.open('results/'..directory..'/flows/'..print_A..'/flow_1_1_'..printepoch..'.csv', "w"))
+    local out2 = assert(io.open('results/'..directory..'/flows/'..print_A..'/flow_2_1_'..printepoch..'.csv', "w"))
+    splitter = ","
+    for k=1,size1 do
+      for l=1,size2 do
+        out1:write(flow[1][k][l])
+        out2:write(flow[2][k][l])
+        if j == size2 then
+          out1:write("\n")
+          out2:write("\n")
+        else
+          out1:write(splitter)
+          out2:write(splitter)
+        end
+      end
     end
+    out1:close()
+    out2:close()
+    image.save('results/'..directory..'/images/'..print_A..'/new_img_1_'..printepoch..'.png', img*normalize)
   end
-
---  25%
-  step = 4
-  for i = 1,size1,step do
-    for j = 1,size2,step do
-      avg_flows[2]:sub(1,1,i,i+step,j,j+step):fill(flow:sub(1,1,i,i+step,j,j+step):sum()/(step*step))
-      avg_flows[2]:sub(2,2,i,i+step,j,j+step):fill(flow:sub(2,2,i,i+step,j,j+step):sum()/(step*step))
-    end
-  end
---  12.5%
-  step = 8
-  for i = 1,size1,step do
-    for j = 1,size2,step do
-      avg_flows[2]:sub(1,1,i,i+step,j,j+step):fill(flow:sub(1,1,i,i+step,j,j+step):sum()/(step*step))
-      avg_flows[2]:sub(2,2,i,i+step,j,j+step):fill(flow:sub(2,2,i,i+step,j,j+step):sum()/(step*step))
-    end
-  end
-  
-  return avg_flows
 end
