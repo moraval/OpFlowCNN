@@ -38,21 +38,50 @@ function OpFlowCriterion:updateOutput (flows, images)
 
   image_estimate = torch.Tensor(batchSize, size1, size2)
 
+  a = torch.Tensor():resizeAs(flows):fill(0.00001)
+  b = torch.Tensor():resizeAs(flows):fill(0.00001)
+  total_variation = torch.Tensor():resizeAs(flows)
+  total_variation_der = torch.Tensor():resizeAs(flows)
+
   local images_l = torch.Tensor(batchSize, size1, size2)
 
   for i=1,batchSize do
     local target = torch.Tensor(channels, size1, size2):copy(images:sub(i,i,channels + 1,channels + channels))
     local image_estimate_l = image.warp(target, flows[i], 'bilinear')
+    local flow = torch.Tensor():resizeAs(flows[i]):copy(flows[i])
 
     if (i==1) then img_est = image_estimate_l end
 
     image_estimate[i]:copy(image_estimate_l:sum(1))
     images_l[i]:copy(images:sub(i,i,1, channels):sum(2))
+
+--    total variation 
+--    local a = torch.Tensor():resizeAs(flow):fill(0.00001)
+    a[i]:sub(1,2,1,size1-1,1,size2):copy(flow:sub(1,2,2,size1))
+
+--    local b = torch.Tensor():resizeAs(flow):fill(0.00001)
+    b[i]:sub(1,2,1,size1,1,size2-1):copy(flow:sub(1,2,1,size1,2,size2))
+
+    a2 = torch.pow(a[i],2)
+    b2 = torch.pow(b[i],2)
+
+    ax = torch.cmul(a[i],flow)
+    bx = torch.cmul(b[i],flow)
+
+    x2 = torch.pow(flow,2)
+
+    total_variation_der[i] = torch.cdiv(-a[i]-b[i]+2*flow, torch.cmax(torch.pow(a2+b2-ax-bx+2*x2, 1/2),0.000001))
+
+--    total_variation = torch.Tensor():resizeAs(flow)
+
+    total_variation[i][1] = torch.pow(torch.pow(a[i][1] - flow[1],2) + torch.pow(b[i][1] - flow[1],2),1/2)
+    total_variation[i][2] = torch.pow(torch.pow(a[i][2] - flow[2],2) + torch.pow(b[i][2] - flow[2],2),1/2)
   end
 
   differences = image_estimate - images_l
 
-  self.output = torch.abs(differences):sum()
+  self.output = torch.abs(differences):sum() + alfa * total_variation:sum()
+--  self.output = torch.abs(differences):sum()
   return self.output
 end
 
@@ -75,84 +104,90 @@ function OpFlowCriterion:updateGradInput (flows, images)
 -- gradients in u,v direction
     local flow_shift = torch.Tensor():resizeAs(flow)
 
-    flow_shift:copy(flow)
+--    derivative V2
+--    flow_shift:copy(flow)
+--    flow_shift[1] = flow_shift[1] + 1
+--    local plus_1_U = image.warp(target, flow_shift, 'bilinear', true):sum(1)
 
-    flow_shift[1] = flow_shift[1] + 1
-    local plus_1_U = image.warp(target, flow_shift, 'bilinear', true):sum(1)
---    plus_1_U[torch.gt(plus_1_U,size1)] = size1
+--    flow_shift[1] = flow_shift[1] - 2
+--    local minus_1_U = image.warp(target, flow_shift, 'bilinear', true):sum(1)
+--    end derivative V2
 
-    flow_shift[1] = flow_shift[1] - 2
-    local minus_1_U = image.warp(target, flow_shift, 'bilinear', true):sum(1)
---    minus_1_U[torch.lt(minus_1_U,1)] = 1
+--    derivative V1
+    local plus_1_U = torch.Tensor():resizeAs(image_estimate[i]):copy(image_estimate[i])
+    plus_1_U:sub(1,size1-1):copy(image_estimate[i]:sub(2,size1))
+
+    local minus_1_U = torch.Tensor():resizeAs(image_estimate[i]):copy(image_estimate[i])
+    minus_1_U:sub(2,size1):copy(image_estimate[i]:sub(1,size1-1))
+--    end derivative V1
 
     local gradU = (minus_1_U - plus_1_U)/2
 
-    flow_shift[1]:copy(flow[1])
-    flow_shift[2] = flow_shift[2] + 1
-    local plus_1_V = image.warp(target, flow_shift, 'bilinear', true):sum(1) 
---    plus_1_V[torch.gt(plus_1_V,size2)] = size2
+--    derivative V2
+--    flow_shift[1]:copy(flow[1])
+--    flow_shift[2] = flow_shift[2] + 1
+--    local plus_1_V = image.warp(target, flow_shift, 'bilinear', true):sum(1) 
 
-    flow_shift[2] = flow_shift[2] - 2
-    local minus_1_V = image.warp(target, flow_shift, 'bilinear', true):sum(1)
---    minus_1_V[torch.lt(minus_1_V,1)] = 1
+--    flow_shift[2] = flow_shift[2] - 2
+--    local minus_1_V = image.warp(target, flow_shift, 'bilinear', true):sum(1)
+--    end derivative V2
+
+--    derivative V1
+    local plus_1_V = torch.Tensor():resizeAs(image_estimate[i]):copy(image_estimate[i])
+    plus_1_V:sub(1,size1, 1, size2-1):copy(image_estimate[i]:sub(1,size1, 2, size2))
+
+    local minus_1_V = torch.Tensor():resizeAs(image_estimate[i]):copy(image_estimate[i])
+    minus_1_V:sub(1,size1, 2, size2):copy(image_estimate[i]:sub(1,size1, 1, size2-1))
+--    end derivative V1
 
     local gradV = (minus_1_V - plus_1_V)/2
 
-    self.gradInput[i][1] = torch.cmul(differences[i], gradU[1])
-    self.gradInput[i][2] = torch.cmul(differences[i], gradV[1])
+    self.gradInput[i][1] = torch.cmul(differences[i], gradU)
+    self.gradInput[i][2] = torch.cmul(differences[i], gradV)
 
 -- regularize - Total variation
-    local a = torch.Tensor():resizeAs(flow):fill(0)
-    a:sub(1,2,1,size1-1,1,size2):copy(flow:sub(1,2,2,size1))
+--    local a = torch.Tensor():resizeAs(flow):fill(0.00001)
+--    a:sub(1,2,1,size1-1,1,size2):copy(flow:sub(1,2,2,size1))
 
-    local b = torch.Tensor():resizeAs(flow):fill(0)
-    b:sub(1,2,1,size1,1,size2-1):copy(flow:sub(1,2,1,size1,2,size2))
+--    local b = torch.Tensor():resizeAs(flow):fill(0.00001)
+--    b:sub(1,2,1,size1,1,size2-1):copy(flow:sub(1,2,1,size1,2,size2))
 
-    a2 = torch.pow(a,2)
-    b2 = torch.pow(b,2)
+--    a2 = torch.pow(a,2)
+--    b2 = torch.pow(b,2)
 
-    ax = torch.cmul(a,flow)
-    bx = torch.cmul(b,flow)
+--    ax = torch.cmul(a,flow)
+--    bx = torch.cmul(b,flow)
 
-    x2 = torch.pow(flow,2)
+--    x2 = torch.pow(flow,2)
 
-    total_variation_der = torch.cdiv(-a-b+2*flow, torch.cmax(torch.pow(a2+b2-ax-bx+2*x2, 1/2),0.000001))
+--    total_variation_der = torch.cdiv(-a-b+2*flow, torch.cmax(torch.pow(a2+b2-ax-bx+2*x2, 1/2),0.000001))
 
-    total_variation = torch.Tensor():resizeAs(flow)
+--    total_variation = torch.Tensor():resizeAs(flow)
 
-    local flow_iplus = torch.Tensor():resizeAs(flow):fill(0)
-    flow_iplus:sub(1,2,1,size1-1):copy(flow:sub(1,2,2,size1))
-    local flow_jplus = torch.Tensor():resizeAs(flow):fill(0)
-    flow_jplus:sub(1,2,1,size1,1,size2-1):copy(flow:sub(1,2,1,size1,2,size2))
+--    total_variation[1] = torch.pow(torch.pow(a[1] - flow[1],2) + torch.pow(b[1] - flow[1],2),1/2)
+--    total_variation[2] = torch.pow(torch.pow(a[2] - flow[2],2) + torch.pow(b[2] - flow[2],2),1/2)
 
-    total_variation[1] = torch.pow(torch.pow(flow_iplus[1] - flow[1],2) + torch.pow(flow_jplus[1] - flow[1],2),1/2)
-    total_variation[2] = torch.pow(torch.pow(flow_iplus[2] - flow[2],2) + torch.pow(flow_jplus[2] - flow[2],2),1/2)
+    local TV_minus_U = torch.Tensor():resizeAs(flow[1]):copy(total_variation[i][1])
+    TV_minus_U:sub(2,size1):copy(total_variation[i]:sub(1,1,1,size1-1))
 
-    local TV_minus_U = torch.Tensor():resizeAs(flow[1]):fill(0)
-    TV_minus_U:sub(2,size1):copy(total_variation:sub(1,1,1,size1-1))
+    gradU = (TV_minus_U - a[i][1])/2
 
-    gradU = (flow_iplus[1] - TV_minus_U)/2
---    gradU = (TV_minus_U - flow_iplus[1])/2
+    local TV_minus_V = torch.Tensor():resizeAs(flow[1]):copy(total_variation[i][2])
+    TV_minus_V:sub(1,size1,2,size2):copy(total_variation[i]:sub(2,2,1,size1,1,size2-1))
 
-    local TV_minus_V = torch.Tensor():resizeAs(flow[1]):fill(0)
-    TV_minus_V:sub(1,size1,2,size2):copy(total_variation:sub(2,2,1,size1,1,size2-1))
+    gradV = (TV_minus_V - b[i][2])/2
 
-    gradV = (flow_jplus[2] - TV_minus_V)/2
---    gradV = (TV_minus_V - flow_jplus[2])/2
+    total_variation_der[i][1] = torch.cmul(total_variation_der[i][1], gradU)
+    total_variation_der[i][2] = torch.cmul(total_variation_der[i][2], gradV)
 
-    total_variation[1] = torch.cmul(total_variation_der[1], gradU)
-    total_variation[2] = torch.cmul(total_variation_der[2], gradV)
 
---    print(total_variation:sum())
---    self.gradInput[i] = (1-alfa)*self.gradInput[i] + alfa*total_variation
-
-    self.gradInput[i] = self.gradInput[i] + alfa*total_variation
+    self.gradInput[i] = self.gradInput[i] + alfa*total_variation_der[i]
 
     if (i==1) then 
       local orig = torch.Tensor(3,size1,size2)
       orig:copy(images:sub(i,i,1, channels))
 
-      save_res(flows[i], img_est, orig, self.gradInput[i]) 
+      save_res(flows[i], img_est, orig, self.gradInput[i], target) 
     end
 
   end
@@ -167,7 +202,7 @@ end
 
 
 --
-function save_res(flow, img, orig, gradient)
+function save_res(flow, img, orig, gradient, target)
   if (epoch % 5 == 0) or epoch == 1 and printFlow then
     local printepoch = epoch
 --  local printA = alfa * 10
@@ -199,23 +234,27 @@ function save_res(flow, img, orig, gradient)
 --    diff = 255 - torch.abs(orig_norm - new_img)
 --    image.save('results/'..directory..'/images/'..printA..'/new_img_diff_1_'..printepoch..'.png', diff)
 
-    print('grad1')
-    print(gradient[1])
-    print('flow1')
-    print(flow[1])
+    print('max in grads')
+    print(torch.max(gradient[1]) .. ' ' .. torch.max(gradient[2]))
+    print('min in grads')
+    print(torch.min(gradient[1]) .. ' ' .. torch.min(gradient[2]))
+--    print('flow1')
+--    print(flow[1])
 
-    print('grad2')
-    print(gradient[2])
-    print('flow2')
-    print(flow[2])
+--    print('grad2')
+--    print(gradient[2])
+--    print('flow2')
+--    print(flow[2])
 
-    print('img1')
-    print(img[1])
+--    print('img1')
+--    print(img[1])
 --print('orig1')
 --print(orig[1])
+
     local s1 = 2*16 + 2
     local s2 = 4*16 + 3*2
-    bigImg = torch.Tensor(3,s1,s2):fill(4)
+--    bigImg = torch.Tensor(3,s1,s2):fill(4)
+    local bigImg = torch.Tensor(1,s1,s2):fill(4)
 
     local fl1 = flow[1]
     fl1 = fl1 + math.abs(torch.min(fl1))
@@ -234,17 +273,17 @@ function save_res(flow, img, orig, gradient)
 
     bigImg[1]:sub(1,16,1,16):copy(flow[1])
     bigImg[1]:sub(19,34,1,16):copy(flow[2])
-    bigImg[2]:sub(1,16,1,16):copy(flow[1])
-    bigImg[2]:sub(19,34,1,16):copy(flow[2])
-    bigImg[3]:sub(1,16,1,16):copy(flow[1])
-    bigImg[3]:sub(19,34,1,16):copy(flow[2])
+--    bigImg[2]:sub(1,16,1,16):copy(flow[1])
+--    bigImg[2]:sub(19,34,1,16):copy(flow[2])
+--    bigImg[3]:sub(1,16,1,16):copy(flow[1])
+--    bigImg[3]:sub(19,34,1,16):copy(flow[2])
 
     bigImg[1]:sub(1,16,19,34):copy(GT[1][1])
     bigImg[1]:sub(19,34,19,34):copy(GT[1][1])
-    bigImg[2]:sub(1,16,19,34):copy(GT[1][1])
-    bigImg[2]:sub(19,34,19,34):copy(GT[1][1])
-    bigImg[3]:sub(1,16,19,34):copy(GT[1][1])
-    bigImg[3]:sub(19,34,19,34):copy(GT[1][1])
+--    bigImg[2]:sub(1,16,19,34):copy(GT[1][1])
+--    bigImg[2]:sub(19,34,19,34):copy(GT[1][1])
+--    bigImg[3]:sub(1,16,19,34):copy(GT[1][1])
+--    bigImg[3]:sub(19,34,19,34):copy(GT[1][1])
 
 --print(gradient)
     local gr1 = gradient[1]
@@ -264,7 +303,9 @@ function save_res(flow, img, orig, gradient)
     bigImg = bigImg/8
     printA = 5
     image.save('results/'..directory..'/images/'..printA..'/bigImg_'..printepoch..'.png', bigImg)
-
+    
+    local img_orig = image.warp(target, GT, 'bilinear')
+    image.save('results/'..directory..'/images/'..printA..'/imgOrigFlow_'..printepoch..'.png', img_orig)
 
   end
 end
