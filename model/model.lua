@@ -61,23 +61,27 @@ function create_model(channels, size1, size2)
 -- layers inside layers - so that I can create the shortcuts (viz. https://github.com/facebook/fb.resnet.torch/blob/master/models/resnet.lua)
   model = nn.Sequential()
 
-  local L1_chan = 36
-  local L2_chan = 72
-  local L3_chan = 144
+  local L1_chan = 32
+  local L2_chan = 64
+  local L3_chan = 128
+  local L4_chan = 256
 
 --  (nIn, nOut, k, s, p)
-  model:add(conv(channels*2, L1_chan, 7, 2, 2))
-  model:add(conv(L1_chan, L2_chan, 3, 2, 1))
-  model:add(conv(L2_chan, L3_chan, 3, 1, 1))
-  model:add(conv(L3_chan, 18, 1, 1, 0))
+--  model:add(conv(channels*2, L1_chan, 7, 2, 2))
+  model:add(conv(channels*2, L1_chan, 7, 1, 2))
+  model:add(conv(L1_chan, L2_chan, 5, 2, 2))
+--  model:add(conv(L1_chan, L2_chan, 3, 2, 1))
+  model:add(conv(L2_chan, L3_chan, 5, 2, 2))
+  model:add(conv(L3_chan, L2_chan, 5, 1, 2))
+  model:add(conv(L2_chan, 2, 1, 1, 0))
 
-  model:add(nn.View(18*23*78))
+--  model:add(nn.View(36*23*78))
 
-  model:add(nn.Linear(18*23*78, 6*23*78)) -- 10 input, 25 hidden units
-  model:add(nn.Tanh()) -- some hyperbolic tangent transfer function
-  model:add(nn.Linear(6*23*78, 2*23*78)) -- 1 output
+--  model:add(nn.Linear(36*23*78, 18*23*78)) -- 10 input, 25 hidden units
+--  model:add(nn.Tanh()) -- some hyperbolic tangent transfer function
+--  model:add(nn.Linear(18*23*78, 2*23*78)) -- 1 output
 
-  model:add(nn.View(2,23,78))
+--  model:add(nn.View(2,23,78))
 
   model:cuda()
   BNInit('nn.SpatialBatchNormalization')
