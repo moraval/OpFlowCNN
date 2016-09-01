@@ -81,6 +81,8 @@ function OpFlowCriterion:updateOutput (flows, images)
   differences = image_estimate - images_l
 
   self.output = torch.abs(differences):sum() + alfa * total_variation:sum()
+  differences = differences/3
+  image_estimate = image_estimate/3
 --  self.output = torch.abs(differences):sum()
   return self.output
 end
@@ -100,6 +102,7 @@ function OpFlowCriterion:updateGradInput (flows, images)
 
     local flow = torch.Tensor():resizeAs(flows[i]):copy(flows[i])
     local target = torch.Tensor(channels, size1, size2):copy(images:sub(i,i,channels + 1,channels + channels))
+    local img = torch.Tensor(channels, size1, size2):copy(images:sub(i,i,1,channels)):sum(1)
 
 -- gradients in u,v direction
     local flow_shift = torch.Tensor():resizeAs(flow)
@@ -144,6 +147,9 @@ function OpFlowCriterion:updateGradInput (flows, images)
 
     self.gradInput[i][1] = torch.cmul(differences[i], gradU)
     self.gradInput[i][2] = torch.cmul(differences[i], gradV)
+
+
+    save_grad(gradU, gradV, self.gradInput[i], img_est)
 
 -- regularize - Total variation
 --    local a = torch.Tensor():resizeAs(flow):fill(0.00001)
@@ -203,7 +209,7 @@ end
 
 --
 function save_res(flow, img, orig, gradient, target)
-  if (epoch % 5 == 0) or epoch == 1 and printFlow then
+  if (epoch % 50 == 0) or epoch == 1 and printFlow then
     local printepoch = epoch
 --  local printA = alfa * 10
 --  local out1 = assert(io.open('results/'..directory..'/flows/'..printA..'/flow_1_1_'..printepoch..'.csv', "w"))
@@ -225,31 +231,10 @@ function save_res(flow, img, orig, gradient, target)
 --  out1:close()
 --  out2:close()
 
---    new_img = torch.floor(img)*normalize
---    image.save('results/'..directory..'/images/'..printA..'/new_img_1_'..printepoch..'.png', new_img)
-
---    orig_norm = torch.floor(orig)*normalize
---    image.save('results/'..directory..'/images/'..printA..'/orig_1'..printepoch..'.png', orig_norm)
-
---    diff = 255 - torch.abs(orig_norm - new_img)
---    image.save('results/'..directory..'/images/'..printA..'/new_img_diff_1_'..printepoch..'.png', diff)
-
     print('max in grads')
     print(torch.max(gradient[1]) .. ' ' .. torch.max(gradient[2]))
     print('min in grads')
     print(torch.min(gradient[1]) .. ' ' .. torch.min(gradient[2]))
---    print('flow1')
---    print(flow[1])
-
---    print('grad2')
---    print(gradient[2])
---    print('flow2')
---    print(flow[2])
-
---    print('img1')
---    print(img[1])
---print('orig1')
---print(orig[1])
 
     local s1 = 2*16 + 2
     local s2 = 4*16 + 3*2
@@ -263,13 +248,6 @@ function save_res(flow, img, orig, gradient, target)
     local fl2 = flow[2]
     fl2 = fl2 + math.abs(torch.min(fl2))
     fl2 = fl2 * (1/torch.max(fl2))
-
---  bigImg[1]:sub(1,16,1,16):copy(fl1*8)
---  bigImg[1]:sub(19,34,1,16):copy(fl2*8)
---  bigImg[2]:sub(1,16,1,16):copy(fl1*8)
---  bigImg[2]:sub(19,34,1,16):copy(fl2*8)
---  bigImg[3]:sub(1,16,1,16):copy(fl1*8)
---  bigImg[3]:sub(19,34,1,16):copy(fl2*8)
 
     bigImg[1]:sub(1,16,1,16):copy(flow[1])
     bigImg[1]:sub(19,34,1,16):copy(flow[2])
@@ -294,8 +272,8 @@ function save_res(flow, img, orig, gradient, target)
     gr2 = gr2 + math.abs(torch.min(gr2))
     gr2 = gr2 * (1/torch.max(gr2))
 
-    bigImg[1]:sub(1,16,37,52):copy(gr1*8)
-    bigImg[1]:sub(19,34,37,52):copy(gr2*8)
+    bigImg[1]:sub(1,16,37,52):copy(gr1)
+    bigImg[1]:sub(19,34,37,52):copy(gr2)
 
     bigImg[1]:sub(1,16,55,70):copy(img[1]*8)
     bigImg[1]:sub(19,34,55,70):copy(orig[1]*8)
@@ -303,9 +281,61 @@ function save_res(flow, img, orig, gradient, target)
     bigImg = bigImg/8
     printA = 5
     image.save('results/'..directory..'/images/'..printA..'/bigImg_'..printepoch..'.png', bigImg)
-    
-    local img_orig = image.warp(target, GT, 'bilinear')
-    image.save('results/'..directory..'/images/'..printA..'/imgOrigFlow_'..printepoch..'.png', img_orig)
+
+--    local img_orig = image.warp(target, GT[1], 'bilinear')
+--    print(img_orig[1])
+--    image.save('results/'..directory..'/images/'..printA..'/imgOrigFlow_'..printepoch..'.png', img_orig)
+
+  end
+end
+--
+function save_grad(gradU, gradV, gradient, img)
+  if (epoch % 50 == 0) or epoch == 1 and printFlow then
+
+    local s1 = 2*16 + 2
+    local s2 = 3*16 + 2*2
+    local bigImg = torch.Tensor(1,s1,s2):fill(4)
+
+--    diff = torch.abs(differences)
+
+    diff = differences + math.abs(torch.min(differences))
+    diff = diff * (1/torch.max(diff))
+
+    bigImg[1]:sub(1,16,1,16):copy(diff)
+    print('diff')
+    print(diff)
+--    bigImg[1]:sub(19,34,1,16):copy(diff)
+    bigImg[1]:sub(19,34,1,16):copy(img[1])
+
+    print('gradU a gradV')
+    print(gradU)
+    print(gradV)
+
+    gradU = gradU + math.abs(torch.min(gradU))
+    gradU = gradU * (1/torch.max(gradU))
+
+    gradV = gradV + math.abs(torch.min(gradV))
+    gradV = gradV * (1/torch.max(gradV))
+
+    bigImg[1]:sub(1,16,19,34):copy(gradU*8)
+    bigImg[1]:sub(19,34,19,34):copy(gradV*8)
+
+    local gr1 = gradient[1]
+    gr1 = gr1 + math.abs(torch.min(gr1))
+    gr1 = gr1 * (1/torch.max(gr1))
+
+    local gr2 = gradient[2]
+    gr2 = gr2 + math.abs(torch.min(gr2))
+    gr2 = gr2 * (1/torch.max(gr2))
+
+    bigImg[1]:sub(1,16,37,52):copy(gr1*8)
+    bigImg[1]:sub(19,34,37,52):copy(gr2*8)
+
+    bigImg[1][1][32] = 8
+    print(bigImg:size())
+    bigImg = bigImg/8
+    printA = 5
+    image.save('results/'..directory..'/images/'..printA..'/gradCheck'..epoch..'.png', bigImg)
 
   end
 end

@@ -32,25 +32,25 @@ local S2 = 16
 
 function create_img(flow, GT, gradient, imgs, epoch)
   if (epoch % 5 == 0) or epoch == 1 then
-  
-  print(flow:size())
+
+    print(flow:size())
     local s1 = 2*16 + 2
     local s2 = 4*16 + 3*2
-    
+
     local orig = imgs:sub(1,3)
     local target = imgs:sub(4,6)
-    
+
     if epoch == 100 then print(flow) end
-    
+
     local img = image.warp(target, flow, 'bilinear')
-local img_orig = image.warp(target, GT, 'bilinear')
+    local img_orig = image.warp(target, GT, 'bilinear')
 
     image.save('results/'..resDir..'/images/5-MSEcriterion/orig'..epoch..'.png', orig)
     image.save('results/'..resDir..'/images/5-MSEcriterion/target'..epoch..'.png', target)
-    
+
     image.save('results/'..resDir..'/images/5-MSEcriterion/img'..epoch..'.png', img)
     image.save('results/'..resDir..'/images/5-MSEcriterion/img_orig'..epoch..'.png', img_orig)
-    
+
     local bigImg = torch.Tensor(1,s1,s2):fill(4)
 
     local fl1 = flow[1]
@@ -134,22 +134,23 @@ for a = 0.5,0.5,0.3 do
   out:write(print_A)
   out:write(',')
 
-  a = 0.1
---  local criterion = nn.OpticalFlowCriterion(resDir, channels, batchSize, printF, a, normalize, GT)
+  a = 0.0
 
-  local criterion = nn.MSECriterion()
+  local criterion = nn.OpticalFlowCriterion(resDir, channels, batchSize, printF, a, normalize, GT)
+--  local criterion = nn.MSECriterion()
+
   local params, gradParams = model:getParameters() -- to flatten all the matrices inside the model
 
   local optimState = {}
   config = {
-    learningRate = 1e-3,
-    momentum = 0.5
+    learningRate = 1e-2,
+    momentum = 0.9
   }
 ----------------------------------------------------------------------
 
   for epoch=1,epochs do
 
-    print("STARTING EPOCH "..epoch)
+    if (epoch == 1 or epoch % 50 == 0) then print("STARTING EPOCH "..epoch) end
 
     for batch = 0,nrOfBatches-1 do
       local start = batch * batchSize + 1
@@ -165,15 +166,15 @@ for a = 0.5,0.5,0.3 do
 --      print(outputs:size())
         outputsNotCuda:copy(outputs)
 
---        local loss = criterion:forward(outputsNotCuda, batchInputsNotCuda)
-        local loss = criterion:forward(outputsNotCuda, GT)
+        local loss = criterion:forward(outputsNotCuda, batchInputsNotCuda)
+--        local loss = criterion:forward(outputsNotCuda, GT)
 
         losses[batch + 1] = loss
 
---        local dloss_doutput = criterion:backward(outputsNotCuda, batchInputsNotCuda)
-        local dloss_doutput = criterion:backward(outputsNotCuda, GT)
+        local dloss_doutput = criterion:backward(outputsNotCuda, batchInputsNotCuda)
+--        local dloss_doutput = criterion:backward(outputsNotCuda, GT)
 
-        create_img(outputsNotCuda[1], GT[1], dloss_doutput[1], batchInputsNotCuda[1], epoch)
+--        create_img(outputsNotCuda[1], GT[1], dloss_doutput[1], batchInputsNotCuda[1], epoch)
 
         local gradsCuda = torch.CudaTensor(BS,2,S1,S2)
         gradsCuda:copy(dloss_doutput)
@@ -185,7 +186,7 @@ for a = 0.5,0.5,0.3 do
 --      optim.sgd(feval, params, config)
     end
     local loss_avg = losses:sum() / nrOfBatches
-    print('AVG LOSS: ' .. loss_avg)
+    if (epoch == 1 or epoch % 50 == 0) then print('AVG LOSS: ' .. loss_avg) end
     out:write(loss_avg)
     out:write(',')
 
