@@ -13,14 +13,19 @@ local function BNInit(name)
 end
 --torch.setdefaulttensortype('torch.FloatTensor')
 ----------------------------------------------------------------------
+-- reset weights - select type
+local method = 'flow'
 
 function create_model(channels, size1, size2)
 
   local function conv(nIn, nOut, k, s, p)
     local layer = nn.Sequential()
     layer:add(nn.SpatialConvolution(nIn,nOut,k,k,s,s,p,p))
+    layer = require('weight-init')(layer, method)
     layer:add(nn.SpatialBatchNormalization(nOut))
-    layer:add(nn.ReLU(true))
+--    layer:add(nn.ReLU(true))
+--    layer:add(nn.HardTanh(-3,3))
+    layer:add(nn.Tanh())
     return layer
   end
 
@@ -28,7 +33,8 @@ function create_model(channels, size1, size2)
     local layer = nn.Sequential()
     layer:add(nn.SpatialConvolution(nIn,nOut,k,k,s,s,p,p)) 
     layer:add(nn.SpatialBatchNormalization(nOut))
-    layer:add(nn.ReLU(true))
+--    layer:add(nn.ReLU(true))
+    layer:add(nn.HardTanh(-3,3))
     return layer
   end
 
@@ -72,8 +78,12 @@ function create_model(channels, size1, size2)
   model:add(conv(L1_chan, L2_chan, 5, 2, 2))
 --  model:add(conv(L1_chan, L2_chan, 3, 2, 1))
   model:add(conv(L2_chan, L3_chan, 5, 2, 2))
+--  model:add(nn.Tanh())
   model:add(conv(L3_chan, L2_chan, 5, 1, 2))
   model:add(conv(L2_chan, 2, 1, 1, 0))
+--  model:add(nn.Tanh())
+
+--  model:add(nn.SpatialBatchNormalization(2))
 
 --  model:add(nn.View(36*23*78))
 

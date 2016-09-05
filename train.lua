@@ -16,6 +16,8 @@ require 'os'
 require 'image'
 require 'synth_dataset'
 
+local print_freq = 10
+
 local data_dir = arg[1]
 local trainingData = arg[2]
 local targetData = arg[3]
@@ -26,12 +28,12 @@ local printF = arg[7]
 local coarse2F = arg[8]
 local normalize = arg[9]
 local channels = 3
-local BS = 1
+local BS = 16
 local S1 = 16
 local S2 = 16
 
 function create_img(flow, GT, gradient, imgs, epoch)
-  if (epoch % 5 == 0) or epoch == 1 then
+  if (epoch % print_freq == 0) or epoch == 1 then
 
     print(flow:size())
     local s1 = 2*16 + 2
@@ -45,27 +47,21 @@ function create_img(flow, GT, gradient, imgs, epoch)
     local img = image.warp(target, flow, 'bilinear')
     local img_orig = image.warp(target, GT, 'bilinear')
 
-    image.save('results/'..resDir..'/images/5-MSEcriterion/orig'..epoch..'.png', orig)
-    image.save('results/'..resDir..'/images/5-MSEcriterion/target'..epoch..'.png', target)
-
-    image.save('results/'..resDir..'/images/5-MSEcriterion/img'..epoch..'.png', img)
-    image.save('results/'..resDir..'/images/5-MSEcriterion/img_orig'..epoch..'.png', img_orig)
+    local printEpoch = string.format("%05d", epoch)
 
     local bigImg = torch.Tensor(1,s1,s2):fill(4)
 
-    local fl1 = flow[1]
-    fl1 = fl1 + math.abs(torch.min(fl1))
-    fl1 = fl1 * (1/torch.max(fl1))
+    local flow1 = flow[1] + math.abs(torch.min(flow[1]))
+    local flow2 = flow[2] + math.abs(torch.min(flow[2]))
+    
+    bigImg[1]:sub(1,16,1,16):copy(flow1)
+    bigImg[1]:sub(19,34,1,16):copy(flow2)
 
-    local fl2 = flow[2]
-    fl2 = fl2 + math.abs(torch.min(fl2))
-    fl2 = fl2 * (1/torch.max(fl2))
-
-    bigImg[1]:sub(1,16,1,16):copy(flow[1])
-    bigImg[1]:sub(19,34,1,16):copy(flow[2])
-
-    bigImg[1]:sub(1,16,19,34):copy(GT[1])
-    bigImg[1]:sub(19,34,19,34):copy(GT[1])
+    local GT1 = GT[1] + math.abs(torch.min(GT[1]))
+    local GT2 = GT[2] + math.abs(torch.min(GT[2]))
+    
+    bigImg[1]:sub(1,16,19,34):copy(GT1)
+    bigImg[1]:sub(19,34,19,34):copy(GT2)
 
     local gr1 = gradient[1]
     gr1 = gr1 + math.abs(torch.min(gr1))
@@ -83,7 +79,7 @@ function create_img(flow, GT, gradient, imgs, epoch)
 
     bigImg = bigImg/8
     printA = 5
-    image.save('results/'..resDir..'/images/5-MSEcriterion/bigImg_'..epoch..'.png', bigImg)
+    image.save('results/'..resDir..'/images/5-MSEcriterion/bigImg_'..printEpoch..'.png', bigImg)
   end
 end
 ----------------------------------------------------------------------
@@ -94,9 +90,6 @@ end
 
 --local trainData, targData, GT = create_dataset(resDir)
 local trainData, targData, GT = load_dataset()
-
---print(targData:size())
---print(trainData:size())
 
 local nrOfBatches = trainData:size(1)/batchSize
 local size1 = trainData:size(3)
@@ -127,30 +120,40 @@ print('done optimization')
 local losses_name = 'results/'..resDir .. '/losses/losses_all.csv'
 local out = assert(io.open(losses_name, "w")) -- open a file for serialization
 
-for a = 0.5,0.5,0.3 do
+for a = 0.01,0.01,0.2 do
   local losses = torch.Tensor(4)
+--  local print_A = math.ceil(a*10)
   local print_A = a*10
 
+  print('STARTING ALFA: ' .. a)
   out:write(print_A)
   out:write(',')
 
-  a = 0.0
+----------------------------------------------------------------------
+-- CRITERION
 
   local criterion = nn.OpticalFlowCriterion(resDir, channels, batchSize, printF, a, normalize, GT)
 --  local criterion = nn.MSECriterion()
+----------------------------------------------------------------------
 
   local params, gradParams = model:getParameters() -- to flatten all the matrices inside the model
 
   local optimState = {}
   config = {
     learningRate = 1e-2,
-    momentum = 0.9
+    momentum = 0.5
   }
 ----------------------------------------------------------------------
-
+  local maxflow = 0
+  local minflow = 0
   for epoch=1,epochs do
 
-    if (epoch == 1 or epoch % 50 == 0) then print("STARTING EPOCH "..epoch) end
+    if (epoch == 1 or epoch % print_freq == 0) then 
+      print("STARTING EPOCH "..epoch) 
+--      print('--------------------FLOW-----------------------')
+--      print(outputsNotCuda)
+--      print('max in flow: ' .. maxflow .. ', min in flow: ' .. minflow)
+    end
 
     for batch = 0,nrOfBatches-1 do
       local start = batch * batchSize + 1
@@ -165,6 +168,11 @@ for a = 0.5,0.5,0.3 do
         local outputsNotCuda = torch.Tensor(BS,2,S1,S2)
 --      print(outputs:size())
         outputsNotCuda:copy(outputs)
+        maxflow = outputsNotCuda:max()
+        minflow = outputsNotCuda:min()
+--      print('--------------------FLOW-----------------------')
+--      print(outputsNotCuda)
+      if (epoch == 1 or epoch % print_freq == 0) then print('max in flow: ' .. maxflow .. ', min in flow: ' .. minflow) end
 
         local loss = criterion:forward(outputsNotCuda, batchInputsNotCuda)
 --        local loss = criterion:forward(outputsNotCuda, GT)
@@ -182,11 +190,12 @@ for a = 0.5,0.5,0.3 do
         model:backward(batchInputs, gradsCuda)
         return loss,gradParams
       end
-      optim.adadelta(feval, params, optimState)
---      optim.sgd(feval, params, config)
+--      optim.adadelta(feval, params, optimState)
+      optim.sgd(feval, params, config)
     end
     local loss_avg = losses:sum() / nrOfBatches
-    if (epoch == 1 or epoch % 50 == 0) then print('AVG LOSS: ' .. loss_avg) end
+    if (epoch == 1 or epoch % print_freq == 0) then print('AVG LOSS: ' .. loss_avg) end
+--    print('AVG LOSS: ' .. loss_avg)
     out:write(loss_avg)
     out:write(',')
 
