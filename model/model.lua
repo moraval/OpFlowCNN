@@ -34,7 +34,7 @@ function create_model(channels, size1, size2)
     layer:add(nn.SpatialConvolution(nIn,nOut,k,k,s,s,p,p)) 
     layer:add(nn.SpatialBatchNormalization(nOut))
 --    layer:add(nn.ReLU(true))
-    layer:add(nn.HardTanh(-3,3))
+--    layer:add(nn.HardTanh(-3,3))
     return layer
   end
 
@@ -52,7 +52,7 @@ function create_model(channels, size1, size2)
     return inner_L
   end
 
-  function final_layer(L1, L2)
+  local function final_layer(L1, L2)
     local L = nn.Sequential()     -- Create a network that takes a Tensor as input
     c = nn.ConcatTable()          -- The same Tensor goes through two different Linear
     c:add(L1)                     -- Layers in Parallel
@@ -63,6 +63,13 @@ function create_model(channels, size1, size2)
     return L
   end
 
+  local function scaleLayer(nIn, nOut, k, s, p)
+    local layer = nn.Sequential()
+    layer:add(nn.SpatialConvolution(nIn,nOut,k,k,s,s,p,p))
+    layer = require('weight-init')(layer, method)
+    layer:add(nn.SpatialBatchNormalization(nOut))
+    return layer
+  end
 ----------------------------------------------------------------------
 -- layers inside layers - so that I can create the shortcuts (viz. https://github.com/facebook/fb.resnet.torch/blob/master/models/resnet.lua)
   model = nn.Sequential()
@@ -73,25 +80,12 @@ function create_model(channels, size1, size2)
   local L4_chan = 256
 
 --  (nIn, nOut, k, s, p)
---  model:add(conv(channels*2, L1_chan, 7, 2, 2))
   model:add(conv(channels*2, L1_chan, 7, 1, 2))
   model:add(conv(L1_chan, L2_chan, 5, 2, 2))
---  model:add(conv(L1_chan, L2_chan, 3, 2, 1))
   model:add(conv(L2_chan, L3_chan, 5, 2, 2))
---  model:add(nn.Tanh())
   model:add(conv(L3_chan, L2_chan, 5, 1, 2))
   model:add(conv(L2_chan, 2, 1, 1, 0))
---  model:add(nn.Tanh())
-
---  model:add(nn.SpatialBatchNormalization(2))
-
---  model:add(nn.View(36*23*78))
-
---  model:add(nn.Linear(36*23*78, 18*23*78)) -- 10 input, 25 hidden units
---  model:add(nn.Tanh()) -- some hyperbolic tangent transfer function
---  model:add(nn.Linear(18*23*78, 2*23*78)) -- 1 output
-
---  model:add(nn.View(2,23,78))
+  model:add(scaleLayer(2, 2, 1, 1, 0))
 
   model:cuda()
   BNInit('nn.SpatialBatchNormalization')

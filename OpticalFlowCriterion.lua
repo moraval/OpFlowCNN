@@ -4,21 +4,21 @@ require 'image'
 require 'sys'
 require 'os'
 
+local namedir = ''
 der2 = 1
-batchSize = 16
+batchSize = 1
 epoch = 1
 channels = 3
 printFlow = 1
-directory = ''
 alfa = 0.1
 normalize = 0
 local size1, size2 = 16,16
-GT = torch.Tensor(batchSize,2,size1,size2)
+GT = nil
 img_est = torch.Tensor(3,size1,size2)
 
-function OpFlowCriterion:__init(dir, chan, batchS, printF, a, norm, gt)
+function OpFlowCriterion:__init(dir, chan, printF, a, norm, gt)
   parent.__init(self)
-  directory = dir
+  namedir = dir
   channels = chan
 --  batchSize = batchS
 --  printFlow = printF
@@ -28,19 +28,16 @@ function OpFlowCriterion:__init(dir, chan, batchS, printF, a, norm, gt)
 end
 --
 
-
 --
 --input = optical flow (values for u,v), target = image
 --function OpFlowCriterion:updateOutput (batchSize, flows, images)
 function OpFlowCriterion:updateOutput (flows, images)
   self.output = 0
 
+  batchSize = images:size(1)
   size1 = images[1][1]:size(1)
   size2 = images[1][1]:size(2)
 
---  print('-------------------FLOW---------------------------')
---  print(flows)
---  print('-------------------END---------------------------')
   image_estimate = torch.Tensor(batchSize, size1, size2)
 
   a = torch.Tensor():resizeAs(flows):fill(0.00001)
@@ -94,7 +91,6 @@ end
 -- inputs - optical flow (values for u,v), target = image
 function OpFlowCriterion:updateGradInput (flows, images)
 
-  if (epoch == 1) then os.execute("mkdir " .. 'results/'..directory..'/images/'..alfa) end
   self.gradInput = torch.Tensor()
   self.gradInput:resizeAs(flows):zero()
 
@@ -210,36 +206,18 @@ function save_res(flow, img, orig, gradient, target)
 --  out1:close()
 --  out2:close()
 
---    print('max in grads')
---    print(torch.max(gradient[1]) .. ' ' .. torch.max(gradient[2]))
---    print('min in grads')
---    print(torch.min(gradient[1]) .. ' ' .. torch.min(gradient[2]))
-
     local s1 = 2*16 + 2
     local s2 = 4*16 + 3*2
---    local s1 = 2*8 + 2
---    local s2 = 4*8 + 3*2
 
     local bigImg = torch.Tensor(1,s1,s2):fill(4)
 
     local fl1 = flow[1]
-    fl1 = fl1 + math.abs(torch.min(fl1))
-    fl1 = fl1 * (1/math.max(torch.max(fl1),0.0001))
---    print('flow')
---    print(flow)
---    print('min a max')
---    print(torch.min(flow[1]) .. ' ' .. torch.min(fl1))
---    print(torch.max(flow[1]) .. ' ' .. torch.max(fl1))
+--    fl1 = fl1 + math.abs(torch.min(fl1))
+--    fl1 = fl1 * (1/math.max(torch.max(fl1),0.0001))
 
     local fl2 = flow[2]
-    fl2 = fl2 + math.abs(torch.min(fl2))
-    fl2 = fl2 * (1/math.max(torch.max(fl2),0.0001))
---    print('min a max flow2')
---    print(torch.min(flow[2]) .. ' ' .. torch.min(fl2))
---    print(torch.max(flow[2]) .. ' ' .. torch.max(fl2))
-
---    local flow1 = flow[1] + math.abs(torch.min(flow[1]))
---    local flow2 = flow[2] + math.abs(torch.min(flow[2]))
+--    fl2 = fl2 + math.abs(torch.min(fl2))
+--    fl2 = fl2 * (1/math.max(torch.max(fl2),0.0001))
 
     bigImg[1]:sub(1,16,1,16):copy(fl1)
     bigImg[1]:sub(19,34,1,16):copy(fl2)
@@ -249,11 +227,6 @@ function save_res(flow, img, orig, gradient, target)
 
     bigImg[1]:sub(1,16,19,34):copy(GT1)
     bigImg[1]:sub(19,34,19,34):copy(GT2)
---    bigImg[1]:sub(1,8,1,8):copy(flow[1])
---    bigImg[1]:sub(11,18,1,8):copy(flow[2])
-
---    bigImg[1]:sub(1,8,11,18):copy(GT[1][1])
---    bigImg[1]:sub(11,18,11,18):copy(GT[1][1])
 
     local gr1 = gradient[1]
     gr1 = gr1 + math.abs(torch.min(gr1))
@@ -268,16 +241,11 @@ function save_res(flow, img, orig, gradient, target)
 
     bigImg[1]:sub(1,16,55,70):copy(img[1]*8)
     bigImg[1]:sub(19,34,55,70):copy(orig[1]*8)
---    bigImg[1]:sub(1,8,21,28):copy(gr1)
---    bigImg[1]:sub(11,18,21,28):copy(gr2)
-
---    bigImg[1]:sub(1,8,31,38):copy(img[1]*8)
---    bigImg[1]:sub(11,18,31,38):copy(orig[1]*8)
 
     bigImg = bigImg/8
     local printA = math.ceil(alfa*10)
     local printEpoch = string.format("%05d", epoch)
-    image.save('results/'..directory..'/images/'..alfa..'/bigImg_'..printEpoch..'.png', bigImg)
+    image.save(namedir .. '/images/bigImg_'..printEpoch..'.png', bigImg)
 
   end
 end
@@ -288,14 +256,11 @@ function save_grad(gradU, gradV, gradient, img)
     local s1 = 2*16 + 2
     local s2 = 3*16 + 2*2
 
---    local s1 = 2*8 + 2
---    local s2 = 3*8 + 2*2
     local bigImg = torch.Tensor(1,s1,s2):fill(4)
 
     diff = differences[1] + math.abs(torch.min(differences[1]))
     diff = diff * (1/torch.max(diff))
 
---    bigImg[1]:subU(1,8,1,8):copy(diff)
     bigImg[1]:sub(1,16,1,16):copy(diff)
 
     bigImg[1]:sub(19,34,1,16):copy(img[1])
@@ -305,7 +270,7 @@ function save_grad(gradU, gradV, gradient, img)
 
     gradV = gradV + math.abs(torch.min(gradV))
     gradV = gradV * (1/torch.max(gradV))
-    
+
     bigImg[1]:sub(1,16,19,34):copy(gradU*8)
     bigImg[1]:sub(19,34,19,34):copy(gradV*8)
 
@@ -323,7 +288,7 @@ function save_grad(gradU, gradV, gradient, img)
     bigImg = bigImg/8
     local printA = math.ceil(alfa*10)
     local printEpoch = string.format("%05d", epoch)
-    image.save('results/'..directory..'/images/'..alfa..'/gradCheck_'..printEpoch..'.png', bigImg)
+    image.save(namedir .. '/images/gradCheck_'..printEpoch..'.png', bigImg)
 
   end
 end

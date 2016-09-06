@@ -17,6 +17,7 @@ require 'image'
 require 'synth_dataset'
 
 local print_freq = 10
+local mseCrit = false
 
 local data_dir = arg[1]
 local trainingData = arg[2]
@@ -28,9 +29,14 @@ local printF = arg[7]
 local coarse2F = arg[8]
 local normalize = arg[9]
 local channels = 3
-local BS = 16
-local S1 = 16
-local S2 = 16
+local BS = 1
+local S1 = 1
+local S2 = 1
+
+function file_exists(name)
+  local f=io.open(name,"r")
+  if f~=nil then io.close(f) return true else return false end
+end
 
 function create_img(flow, GT, gradient, imgs, epoch)
   if (epoch % print_freq == 0) or epoch == 1 then
@@ -53,13 +59,13 @@ function create_img(flow, GT, gradient, imgs, epoch)
 
     local flow1 = flow[1] + math.abs(torch.min(flow[1]))
     local flow2 = flow[2] + math.abs(torch.min(flow[2]))
-    
+
     bigImg[1]:sub(1,16,1,16):copy(flow1)
     bigImg[1]:sub(19,34,1,16):copy(flow2)
 
     local GT1 = GT[1] + math.abs(torch.min(GT[1]))
     local GT2 = GT[2] + math.abs(torch.min(GT[2]))
-    
+
     bigImg[1]:sub(1,16,19,34):copy(GT1)
     bigImg[1]:sub(19,34,19,34):copy(GT2)
 
@@ -79,9 +85,10 @@ function create_img(flow, GT, gradient, imgs, epoch)
 
     bigImg = bigImg/8
     printA = 5
-    image.save('results/'..resDir..'/images/5-MSEcriterion/bigImg_'..printEpoch..'.png', bigImg)
+    image.save('results/'..resDir..'/images/MSE-criterion/bigImg_'..printEpoch..'.png', bigImg)
   end
 end
+
 ----------------------------------------------------------------------
 -- dataset 
 
@@ -89,51 +96,77 @@ end
 --local targData = torch.load(data_dir .. targetData, 'ascii'):sub(1,trainData:size(1))/normalize
 
 --local trainData, targData, GT = create_dataset(resDir)
-local trainData, targData, GT = load_dataset()
+local trainData, targData, GT = load_dataset(batchSize)
+
+--trainData = trainData - trainData:mean()
+
+BS = targData:size(1)
+S1 = targData:size(3)
+S2 = targData:size(4)
 
 local nrOfBatches = trainData:size(1)/batchSize
 local size1 = trainData:size(3)
 local size2 = trainData:size(4)
 
-for i = 1, batchSize * nrOfBatches do
-  local j = math.random(i, batchSize*nrOfBatches)
-  trainData[i], trainData[j] = trainData[j], trainData[i]
-  targData[i], targData[j] = targData[j], targData[i]
-end
+--for i = 1, batchSize * nrOfBatches do
+--  local j = math.random(i, batchSize*nrOfBatches)
+--  trainData[i], trainData[j] = trainData[j], trainData[i]
+--  targData[i], targData[j] = targData[j], targData[i]
+--  GT[i], GT[j] = GT[j], GT[i]
+--end
+
+for a = 0.05,0.05,0.2 do
+  local losses = torch.Tensor(4)
+  print('STARTING ALFA: ' .. a)
+----------------------------------------------------------------------
+  local out = nil
+  local readme = nil
+
+----------------------------------------------------------------------
+-- Directory for results
+
+  local namedir = ''
+  if printF then 
+    local ind = 1
+    namedir = 'results/'..resDir..'/'..alfa ..'_' .. ind
+    while (file_exists(namedir)) do
+      ind = ind + 1
+      namedir = 'results/'..resDir..'/'..alfa ..'_' .. ind
+    end
+    os.execute("mkdir " .. namedir) 
+    os.execute("mkdir " .. namedir..'/images') 
+    os.execute("mkdir " .. namedir..'/flows') 
+    ind = 1
+    local losses_name = namedir .. '/losses.csv'
+    out = assert(io.open(losses_name, "w")) -- open a file for serialization
+    readme = assert(io.open(namedir.."/readme", "w"))
+    out:write(a)
+    out:write(',')
+  end
 
 ----------------------------------------------------------------------
 -- `create_model` is defined in model.lua, it returns the network model
-
-local model = create_model(channels, size1, size2)
-print("Model:")
-print(model)
+  local model = create_model(channels, size1, size2)
+  print("Model:")
+  print(model)
 
 ----------------------------------------------------------------------
 -- Trying to optimize memory
 
-opts = {inplace=true, mode='training'}
-optnet = require 'optnet'
-optnet.optimizeMemory(model, trainData:sub(1, batchSize):cuda(), opts)
-print('done optimization')
-----------------------------------------------------------------------
-
-local losses_name = 'results/'..resDir .. '/losses/losses_all.csv'
-local out = assert(io.open(losses_name, "w")) -- open a file for serialization
-
-for a = 0.01,0.01,0.2 do
-  local losses = torch.Tensor(4)
---  local print_A = math.ceil(a*10)
-  local print_A = a*10
-
-  print('STARTING ALFA: ' .. a)
-  out:write(print_A)
-  out:write(',')
+  opts = {inplace=true, mode='training'}
+  optnet = require 'optnet'
+  optnet.optimizeMemory(model, trainData:sub(1, batchSize):cuda(), opts)
+  print('done optimization')
 
 ----------------------------------------------------------------------
 -- CRITERION
 
-  local criterion = nn.OpticalFlowCriterion(resDir, channels, batchSize, printF, a, normalize, GT)
---  local criterion = nn.MSECriterion()
+  local criterion = nil
+  if mseCrit then
+    criterion = nn.MSECriterion()
+  else
+    criterion = nn.OpticalFlowCriterion(namedir, channels, printF, a, normalize, GT)
+  end
 ----------------------------------------------------------------------
 
   local params, gradParams = model:getParameters() -- to flatten all the matrices inside the model
@@ -141,11 +174,23 @@ for a = 0.01,0.01,0.2 do
   local optimState = {}
   config = {
     learningRate = 1e-2,
-    momentum = 0.5
+    momentum = 0.9
+--    l2_decay:1e-3
   }
+  if printF then
+    readme:write("Model:\n")
+--    readme:write(s)
+
+    readme:write('alfa = ' .. a ..'\n')
+    readme:write('LR = ' .. config.learningRate ..'\n')
+    readme:write('momentum = ' .. config.momentum ..'\n')
+    readme:write('batch size = ' .. batchSize ..'\n')
+    readme:write('number of epochs = ' .. epochs ..'\n')
+  end
 ----------------------------------------------------------------------
   local maxflow = 0
   local minflow = 0
+  local lossAvg = 0
   for epoch=1,epochs do
 
     if (epoch == 1 or epoch % print_freq == 0) then 
@@ -166,23 +211,40 @@ for a = 0.01,0.01,0.2 do
         gradParams:zero()
         local outputs = model:forward(batchInputs)
         local outputsNotCuda = torch.Tensor(BS,2,S1,S2)
+--      print(outputsNotCuda:size())
 --      print(outputs:size())
         outputsNotCuda:copy(outputs)
         maxflow = outputsNotCuda:max()
         minflow = outputsNotCuda:min()
---      print('--------------------FLOW-----------------------')
---      print(outputsNotCuda)
-      if (epoch == 1 or epoch % print_freq == 0) then print('max in flow: ' .. maxflow .. ', min in flow: ' .. minflow) end
 
-        local loss = criterion:forward(outputsNotCuda, batchInputsNotCuda)
---        local loss = criterion:forward(outputsNotCuda, GT)
+        if (epoch == 1 or epoch % print_freq == 0) then 
+          print('max in flow: ' .. maxflow .. ', min in flow: ' .. minflow)
+          print('under 0 ' .. outputsNotCuda:lt(0):sum())
+          print('under -0.4 ' .. outputsNotCuda:lt(-0.4):sum())
+          print('under -0.8 ' .. outputsNotCuda:lt(-0.8):sum())
+        end
+
+--        if (epoch == 1 or epoch % (5*print_freq) == 0) then 
+--          print(outputsNotCuda[1]:lt(-0.4))
+--        end
+
+        local loss = nil
+        if mseCrit then
+          loss = criterion:forward(outputsNotCuda, GT)
+        else
+          loss = criterion:forward(outputsNotCuda, batchInputsNotCuda)
+        end
 
         losses[batch + 1] = loss
 
-        local dloss_doutput = criterion:backward(outputsNotCuda, batchInputsNotCuda)
---        local dloss_doutput = criterion:backward(outputsNotCuda, GT)
+        local dloss_doutput = nil
+        if mseCrit then
+          dloss_doutput = criterion:backward(outputsNotCuda, GT)
+          create_img(outputsNotCuda[1], GT[1], dloss_doutput[1], batchInputsNotCuda[1], epoch)
+        else
+          dloss_doutput = criterion:backward(outputsNotCuda, batchInputsNotCuda)
+        end
 
---        create_img(outputsNotCuda[1], GT[1], dloss_doutput[1], batchInputsNotCuda[1], epoch)
 
         local gradsCuda = torch.CudaTensor(BS,2,S1,S2)
         gradsCuda:copy(dloss_doutput)
@@ -193,14 +255,15 @@ for a = 0.01,0.01,0.2 do
 --      optim.adadelta(feval, params, optimState)
       optim.sgd(feval, params, config)
     end
-    local loss_avg = losses:sum() / nrOfBatches
-    if (epoch == 1 or epoch % print_freq == 0) then print('AVG LOSS: ' .. loss_avg) end
---    print('AVG LOSS: ' .. loss_avg)
-    out:write(loss_avg)
+    lossAvg = losses:sum() / nrOfBatches
+    if (epoch == 1 or epoch % print_freq == 0) then print('AVG LOSS: ' .. lossAvg) end
+    out:write(lossAvg)
     out:write(',')
 
   end
+  readme:write('final loss = ' .. lossAvg ..'\n')
   out:write('\n')
 end
+readme:close()
 out:close()
 
