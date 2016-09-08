@@ -5,22 +5,18 @@ require 'sys'
 require 'os'
 
 local namedir = ''
-der2 = 1
-batchSize = 1
-epoch = 1
-channels = 3
-printFlow = 1
-alfa = 0.1
-normalize = 0
-local size1, size2 = 16,16
-GT = nil
-img_est = torch.Tensor(3,size1,size2)
+local batchSize = 1
+local epoch = 1
+local printFlow = 1
+local alfa = 0.1
+local normalize = 0
+local channels size1, size2 = 3, 16,16
+local printFreq = 100
+local GT = nil
 
-function OpFlowCriterion:__init(dir, chan, printF, a, norm, gt)
+function OpFlowCriterion:__init(dir, printF, a, norm, gt)
   parent.__init(self)
   namedir = dir
-  channels = chan
---  batchSize = batchS
 --  printFlow = printF
   alfa = a
   normalize = norm
@@ -35,6 +31,7 @@ function OpFlowCriterion:updateOutput (flows, images)
   self.output = 0
 
   batchSize = images:size(1)
+  channels = images:size(2)/2
   size1 = images[1][1]:size(1)
   size2 = images[1][1]:size(2)
 
@@ -77,14 +74,19 @@ function OpFlowCriterion:updateOutput (flows, images)
 
   differences = images_l - image_estimate
 
-  self.output = torch.abs(differences):sum() + alfa * total_variation:sum()
+  local diff_sum = torch.abs(differences):sum()
+  local tv_sum = total_variation:sum()
+
+  self.output = diff_sum + alfa * tv_sum
+
   differences = differences/3
   image_estimate = image_estimate/3
-  return self.output/batchSize
+  total_variation = total_variation/2
+
+  return self.output/batchSize, diff_sum/batchSize, tv_sum/batchSize
 end
 
 --
-
 
 
 -- calculating error according to all outputs
@@ -105,37 +107,21 @@ function OpFlowCriterion:updateGradInput (flows, images)
 
     local plus_1_U, minus_1_U, plus_1_V, minus_1_V = torch.Tensor()
 
-    if der2 == 1 then
-      flow_shift:copy(flow)
-      flow_shift[1] = flow_shift[1] + 0.5
-      plus_1_U = image.warp(target, flow_shift, 'bilinear'):sum(1)
+    flow_shift:copy(flow)
+    flow_shift[1] = flow_shift[1] + 0.5
+    plus_1_U = image.warp(target, flow_shift, 'bilinear'):sum(1)
 
-      flow_shift[1] = flow_shift[1] - 1
-      minus_1_U = image.warp(target, flow_shift, 'bilinear'):sum(1)
-    else
-      plus_1_U = torch.Tensor():resizeAs(image_estimate[i]):copy(image_estimate[i])
-      plus_1_U:sub(1,size1-1):copy(image_estimate[i]:sub(2,size1))
-
-      minus_1_U = torch.Tensor():resizeAs(image_estimate[i]):copy(image_estimate[i])
-      minus_1_U:sub(2,size1):copy(image_estimate[i]:sub(1,size1-1))
-    end
+    flow_shift[1] = flow_shift[1] - 1
+    minus_1_U = image.warp(target, flow_shift, 'bilinear'):sum(1)
 
     local gradU = (minus_1_U - plus_1_U)/1
 
-    if der2 == 1 then
-      flow_shift[1]:copy(flow[1])
-      flow_shift[2] = flow_shift[2] + 0.5
-      plus_1_V = image.warp(target, flow_shift, 'bilinear'):sum(1) 
+    flow_shift[1]:copy(flow[1])
+    flow_shift[2] = flow_shift[2] + 0.5
+    plus_1_V = image.warp(target, flow_shift, 'bilinear'):sum(1) 
 
-      flow_shift[2] = flow_shift[2] - 1
-      minus_1_V = image.warp(target, flow_shift, 'bilinear'):sum(1)
-    else
-      plus_1_V = torch.Tensor():resizeAs(image_estimate[i]):copy(image_estimate[i])
-      plus_1_V:sub(1,size1, 1, size2-1):copy(image_estimate[i]:sub(1,size1, 2, size2))
-
-      minus_1_V = torch.Tensor():resizeAs(image_estimate[i]):copy(image_estimate[i])
-      minus_1_V:sub(1,size1, 2, size2):copy(image_estimate[i]:sub(1,size1, 1, size2-1))
-    end
+    flow_shift[2] = flow_shift[2] - 1
+    minus_1_V = image.warp(target, flow_shift, 'bilinear'):sum(1)
 
     local gradV = (minus_1_V - plus_1_V)/1
 
@@ -178,6 +164,7 @@ function OpFlowCriterion:updateGradInput (flows, images)
     self.gradInput[i]:copy(gradSums)
   end
   epoch = epoch + 1
+
   return self.gradInput
 end
 --
@@ -185,7 +172,8 @@ end
 
 --
 function save_res(flow, img, orig, gradient, target)
-  if (epoch % 10 == 0) or epoch == 1 then
+  if (epoch % printFreq == 0) or epoch == 1 then
+    print('Printing result')
 --  local printA = alfa * 10
 --  local out1 = assert(io.open('results/'..directory..'/flows/'..printA..'/flow_1_1_'..printepoch..'.csv', "w"))
 --  local out2 = assert(io.open('results/'..directory..'/flows/'..printA..'/flow_2_1_'..printepoch..'.csv', "w"))
@@ -243,7 +231,7 @@ function save_res(flow, img, orig, gradient, target)
     bigImg[1]:sub(19,34,55,70):copy(orig[1]*8)
 
     bigImg = bigImg/8
-    local printA = math.ceil(alfa*10)
+--    local printA = math.ceil(alfa*10)
     local printEpoch = string.format("%05d", epoch)
     image.save(namedir .. '/images/bigImg_'..printEpoch..'.png', bigImg)
 
@@ -251,7 +239,7 @@ function save_res(flow, img, orig, gradient, target)
 end
 --
 function save_grad(gradU, gradV, gradient, img)
-  if (epoch % 10 == 0) or epoch == 1 then
+  if (epoch % printFreq == 0) or epoch == 1 then
 
     local s1 = 2*16 + 2
     local s2 = 3*16 + 2*2

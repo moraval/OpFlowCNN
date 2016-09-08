@@ -5,27 +5,27 @@ require('cunn')
 
 local nn = require 'nn' 
 
-local function BNInit(name)
-  for k,v in pairs(model:findModules(name)) do
-    v.weight:fill(1)
-    v.bias:zero()
-  end
-end
 --torch.setdefaulttensortype('torch.FloatTensor')
 ----------------------------------------------------------------------
 -- reset weights - select type
 local method = 'flow'
 
-function create_model(channels, size1, size2)
+function create_model(channels, size1, size2, learnAlfa)
 
   local function conv(nIn, nOut, k, s, p)
     local layer = nn.Sequential()
     layer:add(nn.SpatialConvolution(nIn,nOut,k,k,s,s,p,p))
-    layer = require('weight-init')(layer, method)
     layer:add(nn.SpatialBatchNormalization(nOut))
---    layer:add(nn.ReLU(true))
---    layer:add(nn.HardTanh(-3,3))
     layer:add(nn.Tanh())
+    return layer
+  end
+
+  local function convPool(nIn, nOut, k, s, p)
+    local layer = nn.Sequential()
+    layer:add(nn.SpatialConvolution(nIn,nOut,k,k,1,1,p+1,p+1))
+    layer:add(nn.SpatialBatchNormalization(nOut))
+    layer:add(nn.Tanh())
+    layer:add(nn.SpatialAveragePooling(k,k,s,s,p,p):ceil())
     return layer
   end
 
@@ -33,8 +33,7 @@ function create_model(channels, size1, size2)
     local layer = nn.Sequential()
     layer:add(nn.SpatialConvolution(nIn,nOut,k,k,s,s,p,p)) 
     layer:add(nn.SpatialBatchNormalization(nOut))
---    layer:add(nn.ReLU(true))
---    layer:add(nn.HardTanh(-3,3))
+    layer:add(nn.Tanh())
     return layer
   end
 
@@ -66,7 +65,6 @@ function create_model(channels, size1, size2)
   local function scaleLayer(nIn, nOut, k, s, p)
     local layer = nn.Sequential()
     layer:add(nn.SpatialConvolution(nIn,nOut,k,k,s,s,p,p))
-    layer = require('weight-init')(layer, method)
     layer:add(nn.SpatialBatchNormalization(nOut))
     return layer
   end
@@ -78,17 +76,33 @@ function create_model(channels, size1, size2)
   local L2_chan = 64
   local L3_chan = 128
   local L4_chan = 256
+  local p = 0.5
 
---  (nIn, nOut, k, s, p)
-  model:add(conv(channels*2, L1_chan, 7, 1, 2))
-  model:add(conv(L1_chan, L2_chan, 5, 2, 2))
-  model:add(conv(L2_chan, L3_chan, 5, 2, 2))
-  model:add(conv(L3_chan, L2_chan, 5, 1, 2))
-  model:add(conv(L2_chan, 2, 1, 1, 0))
-  model:add(scaleLayer(2, 2, 1, 1, 0))
+--  model:add(nn.Dropout(p))
+  model:add(nn.SpatialDropout(p))
 
+  if (learnAlfa) then
+    model:add(conv(channels*2, L1_chan, 7, 1, 2))
+    model:add(conv(L1_chan, L2_chan, 5, 2, 2))
+    model:add(conv(L2_chan, L3_chan, 5, 2, 2))
+    model:add(conv(L3_chan, L2_chan, 5, 1, 2))
+    model:add(conv(L2_chan, L1_chan, 1, 1, 0))
+    model:add(conv(L1_chan, 4, 1, 1, 0))
+    model:add(scaleLayer(4, 4, 1, 1, 0))
+  else
+    model:add(conv(channels*2, L1_chan, 7, 1, 2))
+    model:add(conv(L1_chan, L2_chan, 5, 2, 2))
+    model:add(conv(L2_chan, L3_chan, 5, 2, 2))
+    model:add(conv(L3_chan, L2_chan, 5, 1, 2))
+    model:add(conv(L2_chan, L1_chan, 1, 1, 0))
+    model:add(conv(L1_chan, 2, 1, 1, 0))
+    model:add(scaleLayer(2, 2, 1, 1, 0))
+  end
+  
+--  reset weights
+  model = require('weight-init')(model, method)
+--  put on CUDA
   model:cuda()
-  BNInit('nn.SpatialBatchNormalization')
 -----------------------------------------------------------------------
   return model
 end

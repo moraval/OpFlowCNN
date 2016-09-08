@@ -22,7 +22,7 @@ function create_model(channels, size1, size2)
 --    layer:add(nn.SpatialConvolution(nIn,nOut,k,k,sW,sH,p,p))
 --    layer:add(nn.SpatialBatchNormalization(nOut))
     layer:add(nn.ReLU(true))
-    poolModule = nn.VolumetricMaxPooling(kT+1,k,k,s,s,s,p,pP,pP)
+    poolModule = nn.VolumetricAveragePooling(kT+1,k,k,s,s,s,p,pP,pP)
     layer:add(poolModule)
     return layer
   end
