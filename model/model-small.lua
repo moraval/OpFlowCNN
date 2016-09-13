@@ -37,7 +37,7 @@ end
   local function convTanh(nIn, nOut, k, s, p)
     local layer = nn.Sequential()
     layer:add(nn.SpatialConvolution(nIn,nOut,k,k,s,s,p,p))
-    layer:add(nn.SpatialBatchNormalization(nOut))
+--    layer:add(nn.SpatialBatchNormalization(nOut))
 --    layer:add(nn.Tanh())
     layer:add(nn.ReLU())
 --    layer:add(nn.HardTanh(-5,5))
@@ -91,7 +91,7 @@ end
     local layer = nn.Sequential()
     layer:add(nn.SpatialConvolution(nIn,nOut,k,k,s,s,p,p))
 --    layer = require('weight-init')(layer, method)
-    layer:add(nn.SpatialBatchNormalization(nOut))
+--    layer:add(nn.SpatialBatchNormalization(nOut))
 --    layer:add(nn.HardTanh(-5,5))
     layer = require('weight-init')(layer, method)
     return layer

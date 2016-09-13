@@ -58,7 +58,7 @@ trainData = trainData - trainData:mean()
 
 local nrOfBatches = trainData:size(1)/batchSize
 
-BS = targData:size(1) / nrOfBatches
+BS = targData:size(1)
 S1 = targData:size(3)
 S2 = targData:size(4)
 local size1 = trainData:size(3)
