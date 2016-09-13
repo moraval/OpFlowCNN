@@ -42,13 +42,9 @@ th train.lua data/ target_data_color_6_25-1.t7 train_data_3d_color_6_25-1.t7 8_2
 
 th train.lua data/ train_data_3d_color_6_25-1.t7 target_data_color_6_25-1.t7 8_22_1 32 50 true false true 255
 
----------------------------------------------------
+-- correct training 13/9
+th train.lua data/ train_data_color_96_25-1.t7 target_data_color_6_25-1.t7 9_13 1 1000 1 false 255
 
-th train.lua data/ train_data_color_96_25-1.t7 target_data_color_6_25-1.t7 8_22_1 24 100 true false true 255
-
-th train.lua data/ train_data_color_96_25-1.t7 target_data_color_6_25-1.t7 8_22_8 24 50 true false 255
-
-th train.lua data/ train_data_color_96_25-1.t7 target_data_color_6_25-1.t7 8_22_T-new_1 24 50 true false 255
 
 TEST DATA SIZE
 th test_data.lua data/ train_data_color_96_25-1.t7
