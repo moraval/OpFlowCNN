@@ -13,7 +13,6 @@ require 'img_msecrit.lua'
 require 'synth_dataset'
 
 local print_freq = 100
-local mseCrit = false
 local sgd = false
 local conv3d = false
 local small = true
@@ -79,7 +78,7 @@ local out = nil
 local readme = nil
 local namedir = ''
 local lr = 0.0001
-local a_0 = 0.5
+local a_0 = 0.2
 local a = a_0
 ----------------------------------------------------------------------
 while lr < 0.001 do
@@ -134,12 +133,7 @@ while lr < 0.001 do
 ----------------------------------------------------------------------
 -- CRITERION
 
-  local criterion = nil
-  if mseCrit then
-    criterion = nn.MSECriterion()
-  else
-    criterion = nn.OpticalFlowCriterion(namedir, printF, a, normalize, GT)
-  end
+  local criterion = nn.OpticalFlowCriterion(namedir, printF, a, normalize, GT)
 ----------------------------------------------------------------------
 -- Optimization algorithm
 
@@ -206,33 +200,12 @@ while lr < 0.001 do
           print('<0 ' .. outputsNotCuda:lt(0):sum() ..', <-0.4 ' .. outputsNotCuda:lt(-0.4):sum() ..', <-0.8 ' .. outputsNotCuda:lt(-0.8):sum())
         end
 
-        local loss = nil
-        if mseCrit then
-          loss = criterion:forward(outputsNotCuda, GT)
-        else
-          loss, err, reg = criterion:forward(outputsNotCuda, batchInputsNotCuda)
-        end
-
+        local loss, err, reg = criterion:forward(outputsNotCuda, batchInputsNotCuda)
         losses[batch + 1] = loss
-
-        if mseCrit then
-          dloss_doutput = criterion:backward(outputsNotCuda, GT)
-          create_img(outputsNotCuda[1], GT[1], dloss_doutput[1], batchInputsNotCuda[1], epoch, print_freq, namedir)
-        else
-          dloss_doutput = criterion:backward(outputsNotCuda, batchInputsNotCuda)
-        end
-
+        dloss_doutput = criterion:backward(outputsNotCuda, batchInputsNotCuda)
         gradsCuda:copy(dloss_doutput)
 
         model:backward(batchInputs, gradsCuda)
-
-        if ((epoch == 1000) and mseCrit) then
-          print('final images')
-          local finDir = namedir..'/final'
-          for img = 1, BS do
-            create_img(outputsNotCuda[img], GT[img], dloss_doutput[img], batchInputsNotCuda[img], epoch, print_freq, finDir, img)
-          end
-        end
 
         return loss,gradParams
       end
