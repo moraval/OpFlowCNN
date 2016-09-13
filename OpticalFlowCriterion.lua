@@ -18,7 +18,7 @@ local GT = nil
 function OpFlowCriterion:__init(dir, printF, a, norm, gt)
   parent.__init(self)
   namedir = dir
-  epoch = 1
+--  epoch = 1
   alfa = a
   normalize = norm
   GT = gt
@@ -148,68 +148,69 @@ function OpFlowCriterion:updateGradInput (flows, images)
     if (epoch == finEpochs) then
       local orig = torch.Tensor(3,size1,size2):copy(images:sub(i,i,1, channels))
       save_res(flows[i], image_estimate[i], orig, self.gradInput[i], i) 
-      if (i==1 and (printFlow == 1)) then 
-        local orig = torch.Tensor(3,size1,size2):copy(images:sub(i,i,1, channels))
-        save_res(flows[i], image_estimate[i], orig, self.gradInput[i], i) 
-      end
     end
+    if (i==1 and (printFlow == 1)) then 
+      local orig = torch.Tensor(3,size1,size2):copy(images:sub(i,i,1, channels))
+      save_res(flows[i], image_estimate[i], orig, self.gradInput[i], i) 
+    end
+  end
 
 --    batch learning
-    gradSums = self.gradInput:sum(1)/batchSize
-    for i=1,batchSize do
-      self.gradInput[i]:copy(gradSums)
-    end
-    epoch = epoch + 1
-
-    return self.gradInput
+  gradSums = self.gradInput:sum(1)/batchSize
+  for i=1,batchSize do
+    self.gradInput[i]:copy(gradSums)
   end
+  epoch = epoch + 1
+
+  return self.gradInput
+end
 --
 
 
 --
-  function save_res(flow, img, orig, gradient, i)
-    if (epoch % printFreq == 0) or epoch == 1 then
-      local s1 = 2*16 + 2
-      local s2 = 4*16 + 3*2
+function save_res(flow, img, orig, gradient, i)
+  if (epoch % printFreq == 0) or epoch == 1 then
+    local s1 = 2*16 + 2
+    local s2 = 4*16 + 3*2
 
-      local bigImg = torch.Tensor(1,s1,s2):fill(4)
+    local bigImg = torch.Tensor(1,s1,s2):fill(4)
 
-      local fl1 = flow[1]
-      local fl2 = flow[2]
+    local fl1 = flow[1]
+    local fl2 = flow[2]
 
-      fl1 = fl1 + math.abs(torch.min(fl1))
-      fl2 = fl2 + math.abs(torch.min(fl2))
+    fl1 = fl1 + math.abs(torch.min(fl1))
+    fl2 = fl2 + math.abs(torch.min(fl2))
 
-      bigImg[1]:sub(1,16,1,16):copy(fl1)
-      bigImg[1]:sub(19,34,1,16):copy(fl2)
+    bigImg[1]:sub(1,16,1,16):copy(fl1)
+    bigImg[1]:sub(19,34,1,16):copy(fl2)
 
-      local GT1 = GT[i][1] + math.abs(torch.min(GT[1][1]))
-      local GT2 = GT[i][2] + math.abs(torch.min(GT[1][2]))
+    local GT1 = GT[i][1] + math.abs(torch.min(GT[1][1]))
+    local GT2 = GT[i][2] + math.abs(torch.min(GT[1][2]))
 
-      bigImg[1]:sub(1,16,19,34):copy(GT1)
-      bigImg[1]:sub(19,34,19,34):copy(GT2)
+    bigImg[1]:sub(1,16,19,34):copy(GT1)
+    bigImg[1]:sub(19,34,19,34):copy(GT2)
 
-      local gr1 = gradient[1]
-      gr1 = gr1 + math.abs(torch.min(gr1))
-      gr1 = gr1 * (1/torch.max(gr1))
+    local gr1 = gradient[1]
+    gr1 = gr1 + math.abs(torch.min(gr1))
+    gr1 = gr1 * (1/torch.max(gr1))
 
-      local gr2 = gradient[2]
-      gr2 = gr2 + math.abs(torch.min(gr2))
-      gr2 = gr2 * (1/torch.max(gr2))
+    local gr2 = gradient[2]
+    gr2 = gr2 + math.abs(torch.min(gr2))
+    gr2 = gr2 * (1/torch.max(gr2))
 
-      bigImg[1]:sub(1,16,37,52):copy(gr1)
-      bigImg[1]:sub(19,34,37,52):copy(gr2)
+    bigImg[1]:sub(1,16,37,52):copy(gr1)
+    bigImg[1]:sub(19,34,37,52):copy(gr2)
 
-      bigImg[1]:sub(1,16,55,70):copy(img[1]*8)
-      bigImg[1]:sub(19,34,55,70):copy(orig[1]*8)
+    bigImg[1]:sub(1,16,55,70):copy(img[1]*8)
+    bigImg[1]:sub(19,34,55,70):copy(orig[1]*8)
 
-      bigImg = bigImg/8
-      local printEpoch = string.format("%05d", epoch)
+    bigImg = bigImg/8
+    local printEpoch = string.format("%05d", epoch)
 
-      if (epoch == finEpochs) then
-        image.save(namedir .. '/final/images/bigImg_'..printEpoch..'_' .. i ..'.png', bigImg)
-      else
-        image.save(namedir .. '/images/bigImg_'..printEpoch..'.png', bigImg)
-      end
+    if (epoch == finEpochs) then
+      image.save(namedir .. '/final/images/bigImg_'..printEpoch..'_' .. i ..'.png', bigImg)
+    else
+      image.save(namedir .. '/images/bigImg_'..printEpoch..'.png', bigImg)
     end
   end
+end

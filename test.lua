@@ -49,70 +49,51 @@ end
 ----------------------------------------------------------------------
 -- dataset 
 
---local trainData = torch.load(data_dir .. trainingData, 'ascii')/normalize
---local targData = torch.load(data_dir .. targetData, 'ascii'):sub(1,trainData:size(1))/normalize
+local testData, dataname = load_dataset_test()
+testData = testData - testData:mean()
 
-local datasize = 32
-local trainData, targData, GT, dataname = load_dataset(datasize)
-trainData = trainData - trainData:mean()
+BS = testData:size(1) / nrOfBatches
+S1 = testData:size(3)
+S2 = testData:size(4)
+local size1 = testData:size(3)
+local size2 = testData:size(4)
 
-local nrOfBatches = trainData:size(1)/batchSize
-
-BS = targData:size(1) / nrOfBatches
-S1 = targData:size(3)
-S2 = targData:size(4)
-local size1 = trainData:size(3)
-local size2 = trainData:size(4)
-
--- shuffling batches
-for i = 1, batchSize * nrOfBatches do
-  local j = math.random(i, batchSize*nrOfBatches)
-  trainData[i], trainData[j] = trainData[j], trainData[i]
-  targData[i], targData[j] = targData[j], targData[i]
-  GT[i], GT[j] = GT[j], GT[i]
-end
-
-if conv3d then trainData = trainData:reshape(torch.LongStorage{BS,3,2,size1,size2}) end
 ----------------------------------------------------------------------
 local out = nil
 local readme = nil
 local namedir = ''
-local lr = 0.0001
-local a_0 = 0.2
-local a = a_0
-----------------------------------------------------------------------
-while lr < 0.001 do
-  local losses = torch.Tensor(nrOfBatches)
-  print('STARTING ALFA: ' .. a)
-  print('STARTING LR: ' .. lr)
 
-  epochX = torch.Tensor(10000)
-  lossY = torch.Tensor(3,10000)
 ----------------------------------------------------------------------
 -- Directory for results
 
   if printF then 
     local ind = 1
     local time = os.date("%X")
-    local name = lr .. '-' .. a .. '-' .. BS .. '-' ..epochs ..'-' ..time
-    namedir = 'results/'..resDir..'/'..name..'_' .. ind
-    while (file_exists(namedir)) do
-      ind = ind + 1
-      namedir = 'results/'..resDir..'/'..name ..'_' .. ind
-    end
+    local name = 'test_model-' .. modelname .. '-' .. dataname
+    namedir = 'results/'..resDir..'/'..name
     os.execute("mkdir " .. namedir) 
     os.execute("mkdir " .. namedir..'/images') 
-    os.execute("mkdir " .. namedir..'/final') 
-    os.execute("mkdir " .. namedir..'/final/images') 
-    os.execute("mkdir " .. namedir..'/flows') 
-    ind = 1
-    local losses_name = namedir .. '/losses.csv'
-    out = assert(io.open(losses_name, "w")) -- open a file for serialization
     readme = assert(io.open(namedir.."/readme", "w"))
-    out:write(a)
-    out:write(',')
   end
 
+
+print('Loading model...')
+local modelDir = '../model/crnn_demo/'
+paths.dofile(paths.concat(modelDir, 'config.lua'))
+local modelLoadPath = paths.concat(modelDir, 'crnn_demo_model.t7')
+gConfig = getConfig()
+gConfig.modelDir = modelDir
+gConfig.maxT = 0
+local model, criterion = createModel(gConfig)
+local snapshot = torch.load(modelLoadPath)
+loadModelState(model, snapshot)
+model:evaluate()
+print(string.format('Model loaded from %s', modelLoadPath))
+
+local imagePath = '../data/demo.png'
+local img = loadAndResizeImage(imagePath)
+local text, raw = recognizeImageLexiconFree(model, img)
+print(string.format('Recognized text: %s (raw: %s)', text, raw))
 ----------------------------------------------------------------------
 -- `create_model` is defined in model.lua, it returns the network model
 

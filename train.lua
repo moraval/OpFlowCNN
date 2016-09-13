@@ -9,13 +9,12 @@ require('sys')
 require('gnuplot')
 
 require 'os'
-require 'img_msecrit.lua'
 require 'synth_dataset'
 
 local print_freq = 100
 local sgd = false
 local conv3d = false
-local small = true
+local small = false
 
 local epochX = torch.Tensor(10000)
 local lossY = torch.Tensor(3,10000)
@@ -53,14 +52,15 @@ end
 --local trainData = torch.load(data_dir .. trainingData, 'ascii')/normalize
 --local targData = torch.load(data_dir .. targetData, 'ascii'):sub(1,trainData:size(1))/normalize
 
-local trainData, targData, GT, dataname = load_dataset(batchSize)
+local datasize = 32
+local trainData, targData, GT, dataname = load_dataset(datasize)
 trainData = trainData - trainData:mean()
 
-BS = targData:size(1)
+local nrOfBatches = trainData:size(1)/batchSize
+
+BS = targData:size(1) / nrOfBatches
 S1 = targData:size(3)
 S2 = targData:size(4)
-
-local nrOfBatches = trainData:size(1)/batchSize
 local size1 = trainData:size(3)
 local size2 = trainData:size(4)
 
@@ -82,7 +82,7 @@ local a_0 = 0.2
 local a = a_0
 ----------------------------------------------------------------------
 while lr < 0.001 do
-  local losses = torch.Tensor(4)
+  local losses = torch.Tensor(nrOfBatches)
   print('STARTING ALFA: ' .. a)
   print('STARTING LR: ' .. lr)
 
@@ -200,7 +200,7 @@ while lr < 0.001 do
           print('<0 ' .. outputsNotCuda:lt(0):sum() ..', <-0.4 ' .. outputsNotCuda:lt(-0.4):sum() ..', <-0.8 ' .. outputsNotCuda:lt(-0.8):sum())
         end
 
-        local loss, err, reg = criterion:forward(outputsNotCuda, batchInputsNotCuda)
+        loss, err, reg = criterion:forward(outputsNotCuda, batchInputsNotCuda)
         losses[batch + 1] = loss
         dloss_doutput = criterion:backward(outputsNotCuda, batchInputsNotCuda)
         gradsCuda:copy(dloss_doutput)
@@ -233,6 +233,9 @@ while lr < 0.001 do
 
 --      annealing of alfa
     a = a_0 / (1+(epoch/(epochs/2)))
+    if (epochs % print_freq == 0) then
+      criterion = nn.OpticalFlowCriterion(namedir, printF, a, normalize, GT)
+    end
   end
 
   if (printF) then

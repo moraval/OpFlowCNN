@@ -35,8 +35,8 @@ end
 function load_dataset(batchSize)
   local matio = require 'matio'
 
---local dataname = 'data/synt_mat/data-8-pix_all-dir_normed-bg.mat'
-  local dataname = 'data/synt_mat/data-10-pix_all-dir_normed-bg_just-scaled.mat'
+local dataname = 'data/synt_mat/data-8-pix_all-dir_normed-bg.mat'
+--  local dataname = 'data/synt_mat/data-10-pix_all-dir_normed-bg_just-scaled.mat'
 --local dataname = 'data/synt_mat/data-allnorm-biggerrectless-onedir.mat'
 --local dataname = 'data/synt_mat/data-allnorm-biggerrectless-twodir.mat'
 --dataname = 'data/synt_mat/data-allnorm-biggerrect-twodir.mat'
