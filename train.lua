@@ -15,7 +15,8 @@ require 'synth_dataset'
 local print_freq = 100
 local mseCrit = false
 local sgd = false
-local conv3d = true
+local conv3d = false
+local small = true
 
 local epochX = torch.Tensor(10000)
 local lossY = torch.Tensor(3,10000)
@@ -33,6 +34,8 @@ local BS, channels, S1, S2 = 1, 3, 1, 1
 
 if (conv3d) then
   require 'model/model_3d_conv_simple.lua'
+elseif (small) then
+  require 'model/model-small.lua'
 else
   require 'model/model.lua'
 end
@@ -72,18 +75,23 @@ local size2 = trainData:size(4)
 --end
 
 if conv3d then trainData = trainData:reshape(torch.LongStorage{BS,3,2,size1,size2}) end
-print(trainData:size())
+--print(trainData:size())
+--print(targData:size())
 ----------------------------------------------------------------------
 local out = nil
 local readme = nil
 local namedir = ''
-
+local lr = 0.0001
+local a_0 = 0.5
+local a = a_0
 ----------------------------------------------------------------------
-for a = 0.15,0.15,0.06 do
-  for lr = 0.001, 0.001, 10 do
+--for a = 0.1,0.1,0.06 do
+--for a = 0.5,0.5,0.06 do
+  while lr < 0.001 do
+--  for lr = 0.001, 1, lr*10 do
     local losses = torch.Tensor(4)
     print('STARTING ALFA: ' .. a)
---    print('STARTING LR: ' .. lr)
+    print('STARTING LR: ' .. lr)
 
     epochX = torch.Tensor(10000)
     lossY = torch.Tensor(3,10000)
@@ -92,13 +100,17 @@ for a = 0.15,0.15,0.06 do
 
     if printF then 
       local ind = 1
-      namedir = 'results/'..resDir..'/'..a ..'_' .. ind
+      local time = os.date("%X")
+      local name = lr .. '-' .. a .. '-' .. BS .. '-' ..epochs ..'-' ..time
+      namedir = 'results/'..resDir..'/'..name..'_' .. ind
       while (file_exists(namedir)) do
         ind = ind + 1
-        namedir = 'results/'..resDir..'/'..a ..'_' .. ind
+        namedir = 'results/'..resDir..'/'..name ..'_' .. ind
       end
       os.execute("mkdir " .. namedir) 
       os.execute("mkdir " .. namedir..'/images') 
+      os.execute("mkdir " .. namedir..'/final') 
+      os.execute("mkdir " .. namedir..'/final/images') 
       os.execute("mkdir " .. namedir..'/flows') 
       ind = 1
       local losses_name = namedir .. '/losses.csv'
@@ -111,9 +123,10 @@ for a = 0.15,0.15,0.06 do
 ----------------------------------------------------------------------
 -- `create_model` is defined in model.lua, it returns the network model
 
-    local model = create_model(channels, S1, S2, false)
+    local model = create_model(channels, S1, S2, false, 2)
     print("Model:")
     print(model)
+    readme:write(string.format('Model configuration:\n%s', model))
 
     print('Starting run: ' .. namedir .. ', using data: ' .. dataname)
 ----------------------------------------------------------------------
@@ -136,6 +149,7 @@ for a = 0.15,0.15,0.06 do
 ----------------------------------------------------------------------
 -- Optimization algorithm
 
+--    model = require('weight-init')(model, 'flow')
     local params, gradParams = model:getParameters() -- to flatten all the matrices inside the model
     model.train = true
 
@@ -153,6 +167,7 @@ for a = 0.15,0.15,0.06 do
 --      readme:write('alfa = ' .. a ..'\n')
       gnuplot.title('Loss, LR = ' .. lr .. ', alfa = ' .. a)
       readme:write('LR = ' .. config.learningRate ..'\n')
+      readme:write('Alfa = ' .. a ..'\n')
       readme:write('momentum = ' .. config.momentum ..'\n')
       readme:write('batch size = ' .. batchSize ..'\n')
       readme:write('number of epochs = ' .. epochs ..'\n')
@@ -197,6 +212,10 @@ for a = 0.15,0.15,0.06 do
           if (epoch == 1 or epoch % print_freq == 0) then 
             print('max in flow: ' .. maxflow .. ', min in flow: ' .. minflow)
             print('<0 ' .. outputsNotCuda:lt(0):sum() ..', <-0.4 ' .. outputsNotCuda:lt(-0.4):sum() ..', <-0.8 ' .. outputsNotCuda:lt(-0.8):sum())
+--            if (epoch == 10) then
+--            print('flow')
+--            print(outputsNotCuda)
+--            end
           end
 
           local loss = nil
@@ -218,6 +237,15 @@ for a = 0.15,0.15,0.06 do
           gradsCuda:copy(dloss_doutput)
 
           model:backward(batchInputs, gradsCuda)
+
+          if ((epoch == 1000) and mseCrit) then
+            print('final images')
+            local finDir = namedir..'/final'
+            for img = 1, BS do
+              create_img(outputsNotCuda[img], GT[img], dloss_doutput[img], batchInputsNotCuda[img], epoch, print_freq, finDir, img)
+            end
+          end
+
           return loss,gradParams
         end
 ----------------------------------------------------------------------
@@ -236,12 +264,15 @@ for a = 0.15,0.15,0.06 do
       if (epoch == 1 or epoch % print_freq == 0) then 
         print('AVG LOSS: ' .. lossAvg .. ' => ' .. err .. ' + ' .. reg)
 --        print('LR ' ..config.learningRate)
+        out:write(lossAvg .. ',')
       end
-
       epochX[epoch] = epoch
       lossY[1][epoch] = lossAvg
       lossY[2][epoch] = err
       lossY[3][epoch] = reg * a
+      
+--      annealing of alfa
+      a = a_0 / (1+(epoch/(epochs/2)))
     end
 
     if (printF) then
@@ -260,11 +291,11 @@ for a = 0.15,0.15,0.06 do
       end
 
       readme:close()
+      out:write('\n')
       out:close()
     end
 
     gnuplot.pngfigure(namedir .. '/loss.png')
-    gnuplot.title('Loss, LR = ' .. lr)
     gnuplot.title('Loss, LR = ' .. lr .. ', alfa = ' .. a)
     gnuplot.plot(
       {'Total error', epochX, lossY[1], '-'},
@@ -275,5 +306,6 @@ for a = 0.15,0.15,0.06 do
     gnuplot.ylabel('E(x)')
     gnuplot.plotflush()
     print('Finished run ' .. namedir)
+    lr = lr*10
   end
-end
+--end

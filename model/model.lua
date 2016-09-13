@@ -15,8 +15,21 @@ function create_model(channels, size1, size2, learnAlfa)
   local function conv(nIn, nOut, k, s, p)
     local layer = nn.Sequential()
     layer:add(nn.SpatialConvolution(nIn,nOut,k,k,s,s,p,p))
+    layer = require('weight-init')(layer, method)
     layer:add(nn.SpatialBatchNormalization(nOut))
-    layer:add(nn.Tanh())
+--    layer:add(nn.Tanh())
+    layer:add(nn.ReLU())
+--    layer:add(nn.HardTanh(-1,1))
+    return layer
+  end
+
+  local function convTanh(nIn, nOut, k, s, p)
+    local layer = nn.Sequential()
+    layer:add(nn.SpatialConvolution(nIn,nOut,k,k,s,s,p,p))
+    layer:add(nn.SpatialBatchNormalization(nOut))
+--    layer:add(nn.Tanh())
+    layer:add(nn.ReLU())
+--    layer:add(nn.HardTanh(-5,5))
     return layer
   end
 
@@ -65,7 +78,10 @@ function create_model(channels, size1, size2, learnAlfa)
   local function scaleLayer(nIn, nOut, k, s, p)
     local layer = nn.Sequential()
     layer:add(nn.SpatialConvolution(nIn,nOut,k,k,s,s,p,p))
+    layer = require('weight-init')(layer, method)
     layer:add(nn.SpatialBatchNormalization(nOut))
+--    layer:add(nn.HardTanh(-5,5))
+--    layer = require('weight-init')(layer, method)
     return layer
   end
 ----------------------------------------------------------------------
@@ -76,31 +92,49 @@ function create_model(channels, size1, size2, learnAlfa)
   local L2_chan = 64
   local L3_chan = 128
   local L4_chan = 256
+
+--  local L1_chan = 8
+--  local L2_chan = 32
+--  local L3_chan = 64
+--  local L4_chan = 128
   local p = 0.5
 
 --  model:add(nn.Dropout(p))
   model:add(nn.SpatialDropout(p))
 
   if (learnAlfa) then
-    model:add(conv(channels*2, L1_chan, 7, 1, 2))
-    model:add(conv(L1_chan, L2_chan, 5, 2, 2))
-    model:add(conv(L2_chan, L3_chan, 5, 2, 2))
-    model:add(conv(L3_chan, L2_chan, 5, 1, 2))
-    model:add(conv(L2_chan, L1_chan, 1, 1, 0))
-    model:add(conv(L1_chan, 4, 1, 1, 0))
-    model:add(scaleLayer(4, 4, 1, 1, 0))
+--    model:add(conv(channels*2, L1_chan, 7, 1, 2))
+--    model:add(conv(L1_chan, L2_chan, 5, 2, 2))
+--    model:add(conv(L2_chan, L3_chan, 5, 2, 2))
+--    model:add(conv(L3_chan, L2_chan, 5, 1, 2))
+--    model:add(conv(L2_chan, L1_chan, 1, 1, 0))
+--    model:add(conv(L1_chan, 4, 1, 1, 0))
+--    model:add(scaleLayer(4, 4, 1, 1, 0))
   else
+--    64	11	2	4	31.5
+--    31	7	2	3	16
+--    16	3	1	1	16
+--    model:add(conv(channels*2, L1_chan, 11, 2, 4))
+--    model:add(conv(L1_chan, L2_chan, 7, 2, 3))
+--    model:add(conv(L2_chan, L1_chan, 3, 1, 1))
+--    model:add(conv(L1_chan, 2, 1, 1, 0))
+
+--    model:add(conv(channels*2, L1_chan, 11, 4, 4))
+--    model:add(conv(L1_chan, 2, 1, 1, 0))
+
     model:add(conv(channels*2, L1_chan, 7, 1, 2))
     model:add(conv(L1_chan, L2_chan, 5, 2, 2))
     model:add(conv(L2_chan, L3_chan, 5, 2, 2))
     model:add(conv(L3_chan, L2_chan, 5, 1, 2))
     model:add(conv(L2_chan, L1_chan, 1, 1, 0))
-    model:add(conv(L1_chan, 2, 1, 1, 0))
-    model:add(scaleLayer(2, 2, 1, 1, 0))
+--    model:add(convTanh(L1_chan, L1_chan, 1, 1, 0))
+--    model:add(conv(L1_chan, 8, 1, 1, 0))
+--    model:add(convTanh(L1_chan, 2, 1, 1, 0))
+    model:add(scaleLayer(L1_chan, 2, 1, 1, 0))
   end
-  
+
 --  reset weights
-  model = require('weight-init')(model, method)
+--  model = require('weight-init')(model, method)
 --  put on CUDA
   model:cuda()
 -----------------------------------------------------------------------

@@ -13,11 +13,12 @@ local normalize = 0
 local channels size1, size2 = 3, 16,16
 local printFreq = 100
 local GT = nil
+local finEpochs = 1000
 
 function OpFlowCriterion:__init(dir, printF, a, norm, gt)
   parent.__init(self)
   namedir = dir
---  printFlow = printF
+  epoch = 1
   alfa = a
   normalize = norm
   GT = gt
@@ -35,10 +36,12 @@ function OpFlowCriterion:updateOutput (flows, images)
   size1 = images[1][1]:size(1)
   size2 = images[1][1]:size(2)
 
-  image_estimate = torch.Tensor(batchSize, size1, size2)
+  image_estimate = torch.Tensor(batchSize, 3, size1, size2)
 
-  a = torch.Tensor():resizeAs(flows):fill(0.00001)
-  b = torch.Tensor():resizeAs(flows):fill(0.00001)
+  a = torch.Tensor():resizeAs(flows):fill(0.00001) -- better, but don't ask me why
+  b = torch.Tensor():resizeAs(flows):fill(0.00001) -- better, but don't ask me why - maybe doesn't matter that much
+--  a = torch.Tensor():resizeAs(flows):copy(flows)
+--  b = torch.Tensor():resizeAs(flows):copy(flows)
   total_variation = torch.Tensor():resizeAs(flows)
   total_variation_der = torch.Tensor():resizeAs(flows)
 
@@ -46,15 +49,18 @@ function OpFlowCriterion:updateOutput (flows, images)
 
   for i=1,batchSize do
     local target = torch.Tensor(channels, size1, size2):copy(images:sub(i,i,channels + 1,channels + channels))
-    local image_estimate_l = image.warp(target, flows[i], 'bilinear')
+    image_estimate[i] = image.warp(target, flows[i], 'bilinear')
     local flow = torch.Tensor():resizeAs(flows[i]):copy(flows[i])
 
-    if (i==1) then img_est = image_estimate_l end
-
-    image_estimate[i]:copy(image_estimate_l:sum(1))
+--    image_estimate[i]:copy(image_estimate_l:sum(1))
     images_l[i]:copy(images:sub(i,i,1, channels):sum(2))
 
 --    total variation 
+--    a[i]:sub(1,1,1,size1-1,1,size2):copy(flow:sub(1,1,2,size1))
+--    a[i]:sub(2,2):copy(flow:sub(2,2))
+--    b[i]:sub(2,2,1,size1,1,size2-1):copy(flow:sub(2,2,1,size1,2,size2))
+--    b[i]:sub(1,1):copy(flow:sub(1,1))
+
     a[i]:sub(1,2,1,size1-1,1,size2):copy(flow:sub(1,2,2,size1))
     b[i]:sub(1,2,1,size1,1,size2-1):copy(flow:sub(1,2,1,size1,2,size2))
 
@@ -72,7 +78,7 @@ function OpFlowCriterion:updateOutput (flows, images)
     total_variation[i][2] = torch.pow(torch.pow(a[i][2] - flow[2],2) + torch.pow(b[i][2] - flow[2],2),1/2)
   end
 
-  differences = images_l - image_estimate
+  differences = images_l - image_estimate:sum(2)
 
   local diff_sum = torch.abs(differences):sum()
   local tv_sum = total_variation:sum()
@@ -80,7 +86,7 @@ function OpFlowCriterion:updateOutput (flows, images)
   self.output = diff_sum + alfa * tv_sum
 
   differences = differences/3
-  image_estimate = image_estimate/3
+--  image_estimate = image_estimate/3
   total_variation = total_variation/2
 
   return self.output/batchSize, diff_sum/batchSize, tv_sum/batchSize
@@ -135,12 +141,12 @@ function OpFlowCriterion:updateGradInput (flows, images)
     local TV_minus_U = torch.Tensor():resizeAs(flow[1]):copy(total_variation[i][1])
     TV_minus_U:sub(2,size1):copy(total_variation[i]:sub(1,1,1,size1-1))
 
-    gradU = (TV_minus_U - a[i][1])/2
+    gradU = (TV_minus_U - a[i][1])/2 -- definitely correct!!
 
     local TV_minus_V = torch.Tensor():resizeAs(flow[1]):copy(total_variation[i][2])
     TV_minus_V:sub(1,size1,2,size2):copy(total_variation[i]:sub(2,2,1,size1,1,size2-1))
 
-    gradV = (TV_minus_V - b[i][2])/2
+    gradV = (TV_minus_V - b[i][2])/2 -- definitely correct!!
 
     total_variation_der[i][1] = torch.cmul(total_variation_der[i][1], gradU)
     total_variation_der[i][2] = torch.cmul(total_variation_der[i][2], gradV)
@@ -151,14 +157,18 @@ function OpFlowCriterion:updateGradInput (flows, images)
     self.gradInput[i][self.gradInput[i]:gt(1)] = 1
     self.gradInput[i][self.gradInput[i]:lt(-1)] = -1
 
-    if (i==1 and (printFlow == 1)) then 
-      local orig = torch.Tensor(3,size1,size2)
-      orig:copy(images:sub(i,i,1, channels))
 
-      save_res(flows[i], img_est, orig, self.gradInput[i], target) 
+    if (epoch == finEpochs) then
+      local orig = torch.Tensor(3,size1,size2):copy(images:sub(i,i,1, channels))
+      save_res(flows[i], image_estimate[i], orig, self.gradInput[i], i) 
+    elseif (i==1 and (printFlow == 1)) then 
+      local orig = torch.Tensor(3,size1,size2):copy(images:sub(i,i,1, channels))
+      save_res(flows[i], image_estimate[i], orig, self.gradInput[i], i) 
     end
-
   end
+
+--  print('grad grad')
+--  print(self.gradInput)
   gradSums = self.gradInput:sum(1)/batchSize
   for i=1,batchSize do
     self.gradInput[i]:copy(gradSums)
@@ -171,29 +181,8 @@ end
 
 
 --
-function save_res(flow, img, orig, gradient, target)
+function save_res(flow, img, orig, gradient, i)
   if (epoch % printFreq == 0) or epoch == 1 then
-    print('Printing result')
---  local printA = alfa * 10
---  local out1 = assert(io.open('results/'..directory..'/flows/'..printA..'/flow_1_1_'..printepoch..'.csv', "w"))
---  local out2 = assert(io.open('results/'..directory..'/flows/'..printA..'/flow_2_1_'..printepoch..'.csv', "w"))
---  local splitter = ","
---  for k=1,size1 do
---    for l=1,size2 do
---      out1:write(flow[1][k][l])
---      out2:write(flow[2][k][l])
---      if j == size2 then
---        out1:write("\n")
---        out2:write("\n")
---      else
---        out1:write(splitter)
---        out2:write(splitter)
---      end
---    end
---  end
---  out1:close()
---  out2:close()
-
     local s1 = 2*16 + 2
     local s2 = 4*16 + 3*2
 
@@ -207,11 +196,14 @@ function save_res(flow, img, orig, gradient, target)
 --    fl2 = fl2 + math.abs(torch.min(fl2))
 --    fl2 = fl2 * (1/math.max(torch.max(fl2),0.0001))
 
+    fl1 = fl1 + math.abs(torch.min(fl1))
+    fl2 = fl2 + math.abs(torch.min(fl2))
+    
     bigImg[1]:sub(1,16,1,16):copy(fl1)
     bigImg[1]:sub(19,34,1,16):copy(fl2)
 
-    local GT1 = GT[1][1] + math.abs(torch.min(GT[1][1]))
-    local GT2 = GT[1][2] + math.abs(torch.min(GT[1][2]))
+    local GT1 = GT[i][1] + math.abs(torch.min(GT[1][1]))
+    local GT2 = GT[i][2] + math.abs(torch.min(GT[1][2]))
 
     bigImg[1]:sub(1,16,19,34):copy(GT1)
     bigImg[1]:sub(19,34,19,34):copy(GT2)
@@ -231,52 +223,32 @@ function save_res(flow, img, orig, gradient, target)
     bigImg[1]:sub(19,34,55,70):copy(orig[1]*8)
 
     bigImg = bigImg/8
---    local printA = math.ceil(alfa*10)
     local printEpoch = string.format("%05d", epoch)
-    image.save(namedir .. '/images/bigImg_'..printEpoch..'.png', bigImg)
 
+    if (epoch == finEpochs) then
+      image.save(namedir .. '/final/images/bigImg_'..printEpoch..'_' .. i ..'.png', bigImg)
+    else
+      image.save(namedir .. '/images/bigImg_'..printEpoch..'.png', bigImg)
+    end
   end
 end
 --
-function save_grad(gradU, gradV, gradient, img)
-  if (epoch % printFreq == 0) or epoch == 1 then
-
-    local s1 = 2*16 + 2
-    local s2 = 3*16 + 2*2
-
-    local bigImg = torch.Tensor(1,s1,s2):fill(4)
-
-    diff = differences[1] + math.abs(torch.min(differences[1]))
-    diff = diff * (1/torch.max(diff))
-
-    bigImg[1]:sub(1,16,1,16):copy(diff)
-
-    bigImg[1]:sub(19,34,1,16):copy(img[1])
-
-    gradU = gradU + math.abs(torch.min(gradU))
-    gradU = gradU * (1/torch.max(gradU))
-
-    gradV = gradV + math.abs(torch.min(gradV))
-    gradV = gradV * (1/torch.max(gradV))
-
-    bigImg[1]:sub(1,16,19,34):copy(gradU*8)
-    bigImg[1]:sub(19,34,19,34):copy(gradV*8)
-
-    local gr1 = gradient[1]
-    gr1 = gr1 + math.abs(torch.min(gr1))
-    gr1 = gr1 * (1/torch.max(gr1))
-
-    local gr2 = gradient[2]
-    gr2 = gr2 + math.abs(torch.min(gr2))
-    gr2 = gr2 * (1/torch.max(gr2))
-
-    bigImg[1]:sub(1,16,37,52):copy(gr1*8)
-    bigImg[1]:sub(19,34,37,52):copy(gr2*8)
-
-    bigImg = bigImg/8
-    local printA = math.ceil(alfa*10)
-    local printEpoch = string.format("%05d", epoch)
-    image.save(namedir .. '/images/gradCheck_'..printEpoch..'.png', bigImg)
-
-  end
-end
+--  local printA = alfa * 10
+--  local out1 = assert(io.open('results/'..directory..'/flows/'..printA..'/flow_1_1_'..printepoch..'.csv', "w"))
+--  local out2 = assert(io.open('results/'..directory..'/flows/'..printA..'/flow_2_1_'..printepoch..'.csv', "w"))
+--  local splitter = ","
+--  for k=1,size1 do
+--    for l=1,size2 do
+--      out1:write(flow[1][k][l])
+--      out2:write(flow[2][k][l])
+--      if j == size2 then
+--        out1:write("\n")
+--        out2:write("\n")
+--      else
+--        out1:write(splitter)
+--        out2:write(splitter)
+--      end
+--    end
+--  end
+--  out1:close()
+--  out2:close()
