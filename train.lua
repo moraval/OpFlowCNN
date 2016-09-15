@@ -14,13 +14,16 @@ require 'synth_dataset'
 local print_freq = 100
 local sgd = false
 local conv3d = false
-local small = false
+local small = true
+local conv_fc = true
+local onlinelearning = true
+local saveResults = true
 
 local epochX = torch.Tensor(10000)
 local lossY = torch.Tensor(3,10000)
 
 local data_dir = arg[1]
-local trainingData = arg[2]
+local modelDir = arg[2]
 local targetData = arg[3]
 local resDir = arg[4]
 local batchSize = arg[5]
@@ -34,6 +37,8 @@ if (conv3d) then
   require 'model/model_3d_conv_simple.lua'
 elseif (small) then
   require 'model/model-small.lua'
+elseif conv_fc then
+  require 'model/model-conv_fc.lua'
 else
   require 'model/model.lua'
 end
@@ -56,7 +61,9 @@ local datasize = 32
 local trainData, targData, GT, dataname = load_dataset(datasize)
 trainData = trainData - trainData:mean()
 
-local nrOfBatches = trainData:size(1)/batchSize
+local nrOfBatches = 1
+
+if onlinelearning then nrOfBatches = trainData:size(1)/batchSize end
 
 BS = targData:size(1)
 S1 = targData:size(3)
@@ -77,8 +84,9 @@ if conv3d then trainData = trainData:reshape(torch.LongStorage{BS,3,2,size1,size
 local out = nil
 local readme = nil
 local namedir = ''
+local savePath = ''
 local lr = 0.0001
-local a_0 = 0.2
+local a_0 = 0.14
 local a = a_0
 ----------------------------------------------------------------------
 while lr < 0.001 do
@@ -92,20 +100,19 @@ while lr < 0.001 do
 -- Directory for results
 
   if printF then 
-    local ind = 1
-    local time = os.date("%X")
+
+    local time = os.date("%d-%m-%X")
     local name = lr .. '-' .. a .. '-' .. BS .. '-' ..epochs ..'-' ..time
-    namedir = 'results/'..resDir..'/'..name..'_' .. ind
-    while (file_exists(namedir)) do
-      ind = ind + 1
-      namedir = 'results/'..resDir..'/'..name ..'_' .. ind
-    end
+
+    savePath = 'models-learned/' .. name ..'.t7'
+    namedir = 'results/'..resDir..'/'..name
+
     os.execute("mkdir " .. namedir) 
     os.execute("mkdir " .. namedir..'/images') 
     os.execute("mkdir " .. namedir..'/final') 
     os.execute("mkdir " .. namedir..'/final/images') 
     os.execute("mkdir " .. namedir..'/flows') 
-    ind = 1
+
     local losses_name = namedir .. '/losses.csv'
     out = assert(io.open(losses_name, "w")) -- open a file for serialization
     readme = assert(io.open(namedir.."/readme", "w"))
@@ -133,7 +140,7 @@ while lr < 0.001 do
 ----------------------------------------------------------------------
 -- CRITERION
 
-  local criterion = nn.OpticalFlowCriterion(namedir, printF, a, normalize, GT)
+  local criterion = nn.OpticalFlowCriterion(namedir, printF, a, normalize, GT, datasize)
 ----------------------------------------------------------------------
 -- Optimization algorithm
 
@@ -150,7 +157,6 @@ while lr < 0.001 do
   if printF then
     readme:write(os.date("%x, %X \n"))
     readme:write('training data '..dataname ..'\n')
---      readme:write('alfa = ' .. a ..'\n')
     gnuplot.title('Loss, LR = ' .. lr .. ', alfa = ' .. a)
     readme:write('LR = ' .. config.learningRate ..'\n')
     readme:write('Alfa = ' .. a ..'\n')
@@ -182,14 +188,17 @@ while lr < 0.001 do
 ----------------------------------------------------------------------
 --      Evalutaion function
       local function feval(params)
-        gradParams:zero() --otherwise goes to hell :)
+        gradParams:zero()
         local outputs = model:forward(batchInputs)
 --          print(outputs:size())
         local outputsNotCuda = nil
         local gradsCuda = nil
 
-        outputsNotCuda = torch.Tensor(BS,2,S1,S2)
-        gradsCuda = torch.CudaTensor(BS,2,S1,S2)
+        local OBS = BS
+        if onlinelearning then OBS = BS/nrOfBatches end
+
+        outputsNotCuda = torch.Tensor(OBS,2,S1,S2)
+        gradsCuda = torch.CudaTensor(OBS,2,S1,S2)
 
         outputsNotCuda:copy(outputs)
         maxflow = outputsNotCuda:max()
@@ -234,7 +243,7 @@ while lr < 0.001 do
 --      annealing of alfa
     a = a_0 / (1+(epoch/(epochs/2)))
     if (epochs % print_freq == 0) then
-      criterion = nn.OpticalFlowCriterion(namedir, printF, a, normalize, GT)
+      criterion = nn.OpticalFlowCriterion(namedir, printF, a, normalize, GT, datasize)
     end
   end
 
@@ -270,5 +279,7 @@ while lr < 0.001 do
   gnuplot.plotflush()
   print('Finished run ' .. namedir)
   lr = lr*10
+
+  if saveResults then torch.save(savePath, model) end
 end
 --end
