@@ -4,28 +4,15 @@ require 'image'
 require 'sys'
 require 'os'
 
-local namedir = ''
 local batchSize = 1
-local epoch = 1
-local run = 1
-local printFlow = 1
 local alfa = 0.1
 local normalize = 0
 local channels size1, size2 = 3, 16,16
-local printFreq = 100
-local finEpochs = 1000
-local GT = nil
-local BS = 1
 
 function OpFlowCriterion:__init(dir, printF, a, norm, gt, BSize)
   parent.__init(self)
-  namedir = dir
---  epoch = 1
---  run = 1
   alfa = a
   normalize = norm
-  GT = gt
-  BS = BSize
 end
 --
 
@@ -42,8 +29,8 @@ function OpFlowCriterion:updateOutput (flows, images)
 
   image_estimate = torch.Tensor(batchSize, 3, size1, size2)
 
-  a = torch.Tensor():resizeAs(flows):fill(0)
-  b = torch.Tensor():resizeAs(flows):fill(0)
+  a = torch.Tensor():resizeAs(flows):fill(-1)
+  b = torch.Tensor():resizeAs(flows):fill(-1)
   total_variation = torch.Tensor():resizeAs(flows)
   total_variation_der = torch.Tensor():resizeAs(flows)
 
@@ -69,8 +56,6 @@ function OpFlowCriterion:updateOutput (flows, images)
     x2 = torch.pow(flow,2)
 
     total_variation_der[i] = torch.cdiv(-a[i]-b[i]+2*flow, torch.cmax(torch.pow(a2+b2-2*ax-2*bx+2*x2, 1/2),0.000001))
-
---    gradV[plus_1_V:eq(-1) or minus_1_V:eq(-1)] = 0
     
     total_variation[i][1] = torch.pow(torch.pow(a[i][1] - flow[1],2) + torch.pow(b[i][1] - flow[1],2),1/2)
     total_variation[i][2] = torch.pow(torch.pow(a[i][2] - flow[2],2) + torch.pow(b[i][2] - flow[2],2),1/2)
@@ -133,15 +118,19 @@ function OpFlowCriterion:updateGradInput (flows, images)
     self.gradInput[i][1] = torch.cmul(differences[i], gradU)
     self.gradInput[i][2] = torch.cmul(differences[i], gradV)
 
-    local TV_minus_U = torch.Tensor():resizeAs(flow[1]):copy(total_variation[i][1])
+    -- local TV_minus_U = torch.Tensor():resizeAs(flow[1]):copy(total_variation[i][1])
+    local TV_minus_U = torch.Tensor():resizeAs(flow[1]):fill(-1)
     TV_minus_U:sub(2,size1):copy(total_variation[i]:sub(1,1,1,size1-1))
 
-    gradU = (TV_minus_U - a[i][1])/2 -- definitely correct!!
+    gradU = (TV_minus_U - a[i][1])/2
+    gradU[TV_minus_U:eq(-1) or a[i][1]:eq(-1)] = 0
 
-    local TV_minus_V = torch.Tensor():resizeAs(flow[1]):copy(total_variation[i][2])
+    -- local TV_minus_V = torch.Tensor():resizeAs(flow[1]):copy(total_variation[i][2])
+    local TV_minus_V = torch.Tensor():resizeAs(flow[1]):fill(-1)
     TV_minus_V:sub(1,size1,2,size2):copy(total_variation[i]:sub(2,2,1,size1,1,size2-1))
 
-    gradV = (TV_minus_V - b[i][2])/2 -- definitely correct!!
+    gradV = (TV_minus_V - b[i][2])/2
+    gradV[TV_minus_V:eq(-1) or b[i][2]:eq(-1)] = 0
 
     total_variation_der[i][1] = torch.cmul(total_variation_der[i][1], gradU)
     total_variation_der[i][2] = torch.cmul(total_variation_der[i][2], gradV)
@@ -152,15 +141,6 @@ function OpFlowCriterion:updateGradInput (flows, images)
     self.gradInput[i][self.gradInput[i]:gt(1)] = 1
     self.gradInput[i][self.gradInput[i]:lt(-1)] = -1
 
---    saving results
-    if (epoch == finEpochs) then
-      local orig = torch.Tensor(3,size1,size2):copy(images:sub(i,i,1, channels))
-      save_res(flows[i], image_estimate[i], orig, self.gradInput[i], i) 
-    end
-    if (i==1 and (printFlow == 1)) then 
-      local orig = torch.Tensor(3,size1,size2):copy(images:sub(i,i,1, channels))
-      save_res(flows[i], image_estimate[i], orig, self.gradInput[i], run) 
-    end
   end
 
 --    batch learning
@@ -169,62 +149,6 @@ function OpFlowCriterion:updateGradInput (flows, images)
     self.gradInput[i]:copy(gradSums)
   end
 
-  if (run == BS) then
-    epoch = epoch + 1
-    run = 1
-  else 
-    run = run + 1
-  end
-
   return self.gradInput
 end
 --
-
-
---
-function save_res(flow, img, orig, gradient, i)
-  if (epoch % printFreq == 0) or epoch == 1 then
-    local s1 = 2*16 + 2
-    local s2 = 4*16 + 3*2
-
-    local bigImg = torch.Tensor(1,s1,s2):fill(4)
-
-    local fl1 = flow[1]
-    local fl2 = flow[2]
-
-    fl1 = fl1 + math.abs(torch.min(fl1))
-    fl2 = fl2 + math.abs(torch.min(fl2))
-
-    bigImg[1]:sub(1,16,1,16):copy(fl1)
-    bigImg[1]:sub(19,34,1,16):copy(fl2)
-
-    local GT1 = GT[i][1] + math.abs(torch.min(GT[i][1]))
-    local GT2 = GT[i][2] + math.abs(torch.min(GT[i][2]))
-
-    bigImg[1]:sub(1,16,19,34):copy(GT1)
-    bigImg[1]:sub(19,34,19,34):copy(GT2)
-
-    local gr1 = gradient[1]
-    gr1 = gr1 + math.abs(torch.min(gr1))
-    gr1 = gr1 * (1/torch.max(gr1))
-
-    local gr2 = gradient[2]
-    gr2 = gr2 + math.abs(torch.min(gr2))
-    gr2 = gr2 * (1/torch.max(gr2))
-
-    bigImg[1]:sub(1,16,37,52):copy(gr1)
-    bigImg[1]:sub(19,34,37,52):copy(gr2)
-
-    bigImg[1]:sub(1,16,55,70):copy(img[1]*8)
-    bigImg[1]:sub(19,34,55,70):copy(orig[1]*8)
-
-    bigImg = bigImg/8
-    local printEpoch = string.format("%05d", epoch)
-
-    if (epoch == finEpochs) then
-      image.save(namedir .. '/final/images/bigImg_'..printEpoch..'_' .. i ..'.png', bigImg)
-    else
-      image.save(namedir .. '/images/bigImg_'..printEpoch..'_' ..i ..'.png', bigImg)
-    end
-  end
-end
