@@ -10,17 +10,21 @@ require('gnuplot')
 
 require 'os'
 require 'synth_dataset'
+require 'save_results.lua'
 
 local print_freq = 100
 local sgd = false
 local conv3d = false
 local small = true
-local conv_fc = true
+local conv_fc = false
 local onlinelearning = true
 local saveResults = true
 
-local epochX = torch.Tensor(10000)
-local lossY = torch.Tensor(3,10000)
+local epochX = torch.Tensor(1000)
+local lossY = torch.Tensor(3,1000)
+
+local epochValX = torch.Tensor(1000)
+local lossValY = torch.Tensor(3,1000)
 
 local data_dir = arg[1]
 local modelDir = arg[2]
@@ -45,41 +49,29 @@ end
 
 require 'OpticalFlowCriterion'
 
-function file_exists(name)
-  local f=io.open(name,"r")
-  if f~=nil then io.close(f) return true else return false end
-end
-
-
 ----------------------------------------------------------------------
--- dataset 
+-- training dataset 
 
---local trainData = torch.load(data_dir .. trainingData, 'ascii')/normalize
---local targData = torch.load(data_dir .. targetData, 'ascii'):sub(1,trainData:size(1))/normalize
-
-local datasize = 32
-local trainData, targData, GT, dataname = load_dataset(datasize)
+local trainData, targData, GT, dataname = load_dataset()
 trainData = trainData - trainData:mean()
-
-local nrOfBatches = 1
-
-if onlinelearning then nrOfBatches = trainData:size(1)/batchSize end
 
 BS = targData:size(1)
 S1 = targData:size(3)
 S2 = targData:size(4)
+nrOfBatches = trainData:size(1)
 local size1 = trainData:size(3)
 local size2 = trainData:size(4)
 
--- shuffling batches
-for i = 1, batchSize * nrOfBatches do
-  local j = math.random(i, batchSize*nrOfBatches)
-  trainData[i], trainData[j] = trainData[j], trainData[i]
-  targData[i], targData[j] = targData[j], targData[i]
-  GT[i], GT[j] = GT[j], GT[i]
-end
-
 if conv3d then trainData = trainData:reshape(torch.LongStorage{BS,3,2,size1,size2}) end
+
+trainData = trainData:cuda()
+
+-- validation dataset 
+local inValSet, outValSet, GTval, datanameVal = load_val_dataset()
+local valSize = inValSet:size(1)
+inValSet = inValSet - inValSet:mean()
+inValSet = inValSet:cuda()
+
 ----------------------------------------------------------------------
 local out = nil
 local readme = nil
@@ -90,15 +82,13 @@ local a_0 = 0.14
 local a = a_0
 ----------------------------------------------------------------------
 while lr < 0.001 do
-  local losses = torch.Tensor(nrOfBatches)
   print('STARTING ALFA: ' .. a)
   print('STARTING LR: ' .. lr)
 
-  epochX = torch.Tensor(10000)
-  lossY = torch.Tensor(3,10000)
+  epochX = torch.Tensor(1000)
+  lossY = torch.Tensor(3,1000)
 ----------------------------------------------------------------------
 -- Directory for results
-
   if printF then 
 
     local time = os.date("%d-%m-%X")
@@ -106,11 +96,14 @@ while lr < 0.001 do
 
     savePath = 'models-learned/' .. name ..'.t7'
     namedir = 'results/'..resDir..'/'..name
+    valNameDir = namedir .. '/val_img'
+    trainNameDir = namedir .. '/train_img'
+    trainFinNameDir = namedir .. '/train_fin_img'
 
     os.execute("mkdir " .. namedir) 
-    os.execute("mkdir " .. namedir..'/images') 
-    os.execute("mkdir " .. namedir..'/final') 
-    os.execute("mkdir " .. namedir..'/final/images') 
+    os.execute("mkdir " .. valNameDir) 
+    os.execute("mkdir " .. trainNameDir) 
+    os.execute("mkdir " .. trainFinNameDir) 
     os.execute("mkdir " .. namedir..'/flows') 
 
     local losses_name = namedir .. '/losses.csv'
@@ -123,7 +116,7 @@ while lr < 0.001 do
 ----------------------------------------------------------------------
 -- `create_model` is defined in model.lua, it returns the network model
 
-  local model = create_model(channels, S1, S2, false, 2)
+  local model = create_model(channels, S1, S2, false, batchSize)
   print("Model:")
   print(model)
   readme:write(string.format('Model configuration:\n%s', model))
@@ -145,7 +138,6 @@ while lr < 0.001 do
 -- Optimization algorithm
 
   local params, gradParams = model:getParameters() -- to flatten all the matrices inside the model
-  model.train = true
 
   local optimState = {}
   config = {
@@ -157,7 +149,6 @@ while lr < 0.001 do
   if printF then
     readme:write(os.date("%x, %X \n"))
     readme:write('training data '..dataname ..'\n')
-    gnuplot.title('Loss, LR = ' .. lr .. ', alfa = ' .. a)
     readme:write('LR = ' .. config.learningRate ..'\n')
     readme:write('Alfa = ' .. a ..'\n')
     readme:write('momentum = ' .. config.momentum ..'\n')
@@ -168,77 +159,103 @@ while lr < 0.001 do
   local maxflow = 0
   local minflow = 0
   local lossAvg = 0
-  local reg = 0
-  local err = 0
+  local regAvg = 0
+  local errAvg = 0
 
 ----------------------------------------------------------------------
---  STARTING TRAINING!!!!
+--  STARTING TRAINING
 
   for epoch=1,epochs do
+
+    -- model.train = true
+    model:training()
 
     if (epoch == 1 or epoch % print_freq == 0) then print("STARTING EPOCH "..epoch) end
     local dloss_doutput = nil
 
-    for batch = 0,nrOfBatches-1 do
-      local start = batch * batchSize + 1
-      local myend = start + batchSize -1
-      local batchInputs = trainData:sub(start, myend):cuda()
-      local batchInputsNotCuda = targData:sub(start, myend)
-
-----------------------------------------------------------------------
---      Evalutaion function
+    for ind = 1,nrOfBatches do
+--      Evaluation function
       local function feval(params)
         gradParams:zero()
-        local outputs = model:forward(batchInputs)
---          print(outputs:size())
+        local outputs = model:forward(trainData:sub(ind, ind))
+
+        if conv3d then outputs = outputs:view(1,2,16,16) end
+        
         local outputsNotCuda = nil
         local gradsCuda = nil
 
-        local OBS = BS
-        if onlinelearning then OBS = BS/nrOfBatches end
-
-        outputsNotCuda = torch.Tensor(OBS,2,S1,S2)
-        gradsCuda = torch.CudaTensor(OBS,2,S1,S2)
-
+        outputsNotCuda = torch.Tensor(1,2,S1,S2)
+        gradsCuda = torch.CudaTensor(1,2,S1,S2)
+        
         outputsNotCuda:copy(outputs)
         maxflow = outputsNotCuda:max()
         minflow = outputsNotCuda:min()
 
-        if (epoch == 1 or epoch % print_freq == 0) then 
-          print('max in flow: ' .. maxflow .. ', min in flow: ' .. minflow)
-          print('<0 ' .. outputsNotCuda:lt(0):sum() ..', <-0.4 ' .. outputsNotCuda:lt(-0.4):sum() ..', <-0.8 ' .. outputsNotCuda:lt(-0.8):sum())
+        local loss, err, reg = criterion:forward(outputsNotCuda, targData:sub(ind,ind))
+        lossAvg = lossAvg + loss
+        regAvg = regAvg + reg
+        errAvg = errAvg + err
+
+        if (epoch % print_freq == 0 and ind < 8) then
+          local orig = torch.Tensor(3,S1,S2):copy(targData:sub(ind,ind,1, channels))
+          save_results(trainNameDir, outputsNotCuda[1], image_estimate[1], orig, GT[ind], ind, epoch) 
         end
 
-        loss, err, reg = criterion:forward(outputsNotCuda, batchInputsNotCuda)
-        losses[batch + 1] = loss
-        dloss_doutput = criterion:backward(outputsNotCuda, batchInputsNotCuda)
+        dloss_doutput = criterion:backward(outputsNotCuda, targData:sub(ind,ind))
         gradsCuda:copy(dloss_doutput)
 
-        model:backward(batchInputs, gradsCuda)
-
+        model:backward(trainData:sub(ind, ind), gradsCuda)
         return loss,gradParams
       end
-----------------------------------------------------------------------
---      Choosing between SGD and ADADELTA
+  ----------------------------------------------------------------------
+  --      Choosing between SGD and ADADELTA
 
       if sgd then
         optim.sgd(feval, params, config)
       else
         optim.adadelta(feval, params, optimState)
       end
-
-----------------------------------------------------------------------
     end
-    lossAvg = losses:sum() / nrOfBatches
+-------------------------------------------------------------------------
+    lossAvg = lossAvg / nrOfBatches
+    errAvg = errAvg / nrOfBatches
+    regAvg = regAvg / nrOfBatches
 
     if (epoch == 1 or epoch % print_freq == 0) then 
-      print('AVG LOSS: ' .. lossAvg .. ' => ' .. err .. ' + ' .. reg)
+      print('TRAINING AVG LOSS: ' .. lossAvg .. ' => ' .. errAvg .. ' + ' .. regAvg)
+      print('Max in flow: ' .. maxflow .. ', min in flow: ' .. minflow)
       out:write(lossAvg .. ',')
+
+      -- validate
+      model:evaluate()
+      local lossValAvg, lossErrAvg, lossRegAvg = 0, 0, 0
+      for v = 1,valSize do
+        -- print(inValSet:sub(v,v):size())
+        local outVal = model:forward(inValSet:sub(v,v))
+        outValNotCuda = torch.Tensor(1,2,S1,S2):copy(outVal)
+        local lossVal, lossEr, lossReg = criterion:forward(outValNotCuda, outValSet:sub(v,v))
+        lossValAvg = lossValAvg + lossVal
+        lossErrAvg = lossErrAvg + lossEr
+        lossRegAvg = lossRegAvg + lossReg
+
+        local orig = torch.Tensor(3,S1,S2):copy(outValSet:sub(v,v,1, channels))
+        save_results(valNameDir, outValNotCuda[1], image_estimate[1], orig, GTval[v], v, epoch) 
+      end
+      print('VALIDATION AVG LOSS: ' .. lossValAvg/valSize .. ' => ' .. lossErrAvg/valSize .. ' + ' .. lossRegAvg/valSize*a)
+      collectgarbage()
+
+      epochValX[epoch] = epoch
+      lossValY[1][epoch] = lossValAvg/valSize
+      lossValY[2][epoch] = lossErrAvg/valSize
+      lossValY[3][epoch] = lossRegAvg/valSize * a
+      model.train = true
     end
     epochX[epoch] = epoch
     lossY[1][epoch] = lossAvg
-    lossY[2][epoch] = err
-    lossY[3][epoch] = reg * a
+    lossY[2][epoch] = errAvg
+    lossY[3][epoch] = regAvg * a
+
+    lossAvg, regAvg, errAvg = 0, 0, 0
 
 --      annealing of alfa
     a = a_0 / (1+(epoch/(epochs/2)))
@@ -277,8 +294,20 @@ while lr < 0.001 do
   gnuplot.xlabel('time(epoch)')
   gnuplot.ylabel('E(x)')
   gnuplot.plotflush()
+    
+  gnuplot.pngfigure(namedir .. '/lossVal.png')
+  gnuplot.title('Validation loss, LR = ' .. lr .. ', alfa = ' .. a)
+  gnuplot.plot(
+    {'Total error', epochValX, lossValY[1], '-'},
+    {'Intensity error', epochValX, lossValY[2], '-'},
+    {'TV error', epochValX, lossValY[3], '-'}
+  )
+  gnuplot.xlabel('time(epoch)')
+  gnuplot.ylabel('E(x)')
+  gnuplot.plotflush()
+
   print('Finished run ' .. namedir)
-  lr = lr*10
+  -- lr = lr*10
 
   if saveResults then torch.save(savePath, model) end
 end
