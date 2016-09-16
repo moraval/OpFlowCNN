@@ -32,36 +32,71 @@ function create_dataset(dir)
   return dataset, targets, GT
 end
 
-function load_dataset(batchSize)
+function load_dataset()
   local matio = require 'matio'
 
-local dataname = 'data/synt_mat/data-8-pix_all-dir_normed-bg.mat'
---  local dataname = 'data/synt_mat/data-10-pix_all-dir_normed-bg_just-scaled.mat'
---local dataname = 'data/synt_mat/data-allnorm-biggerrectless-onedir.mat'
---local dataname = 'data/synt_mat/data-allnorm-biggerrectless-twodir.mat'
---dataname = 'data/synt_mat/data-allnorm-biggerrect-twodir.mat'
---dataname = 'data/synt_mat/data-allnorm-rectless-onedir.mat'
+  local resdir = 'data/synt_mat/'
+  local name = 'train-128-dataset-16-pix.mat'
+--  local name = 'train-data-diff-pix_all-dir_diff-bg_just-scaled.mat'
+--  local name = 'train-data-8-pix_all-dir_diff-bg_just-scaled.ma
+--  local name = 'train-big-data-16-pix_all-dir_diff-bg_just-scaled.mat'
+--  local name = 'train-big-data-16-pix_only-move_diff-bg_just-scaled.mat'
+--  local name = 'train-big-data-16-pix_only-move_cool-bg.mat'
+--  local name = 'train-data-8-pix_all-dir_normed-bg_just-scaled.mat'
+--  local name = 'train-data-diff-1-pix_all-dir_normed-bg_just-scaled.mat'
+  local dataname = resdir .. name
+
+  local datasize = 64
+--  'data_big','data_small'
+  local help1 = matio.load(dataname, 'data_big'):sub(1,datasize)
+  local help2 = matio.load(dataname, 'data_small'):sub(1,datasize)
+  local help3 = matio.load(dataname, 'gt'):sub(1,datasize)
+
+  return help1, help2, help3, dataname
+  -- if (batchSize == 32) then return help1, help2, help3, dataname end
+
+  -- local randInd = math.random(32)
+
+  -- local dataset = help1:sub(randInd,randInd)
+  -- local targets = help2:sub(randInd,randInd)
+  -- local GT = help3:sub(randInd,randInd)
+
+  -- for i = 1,batchSize-1 do
+  --   randInd = math.random(32)
+  --   dataset = torch.cat(dataset, help1:sub(randInd,randInd), 1)
+  --   targets = torch.cat(targets, help2:sub(randInd,randInd), 1)
+  --   GT = torch.cat(GT, help3:sub(randInd,randInd), 1)
+  -- end
+
+  -- return dataset, targets, GT, dataname
+end
+
+function load_val_dataset()
+  local matio = require 'matio'
+
+  local resdir = 'data/synt_mat/'
+  local name = 'validate-16-dataset-16-pix.mat'
+  local dataname = resdir .. name
+
 --  'data_big','data_small'
   local help1 = matio.load(dataname, 'data_big')
   local help2 = matio.load(dataname, 'data_small')
   local help3 = matio.load(dataname, 'gt')
 
-  if (batchSize == 32) then return help1, help2, help3, dataname end
-
-  local randInd = math.random(32)
-
-  local dataset = help1:sub(randInd,randInd)
-  local targets = help2:sub(randInd,randInd)
-  local GT = help3:sub(randInd,randInd)
-
-  for i = 1,batchSize-1 do
-    randInd = math.random(32)
-    dataset = torch.cat(dataset, help1:sub(randInd,randInd), 1)
-    targets = torch.cat(targets, help2:sub(randInd,randInd), 1)
-    GT = torch.cat(GT, help3:sub(randInd,randInd), 1)
-  end
-
-  return dataset, targets, GT, dataname
+  return help1, help2, help3, dataname
 end
 
---load_dataset()
+function load_dataset_test()
+  local matio = require 'matio'
+
+  local resdir = 'data/synt_mat/'
+--  local dataname = 'test-data-10-pix_one-dir_normed-bg_just-scaled.mat'
+  -- local dataname = 'test-data-8-pix_one-dir_normed-bg_just-scaled.mat'
+  local dataname = 'test-big-data-16-pix_only-move_diff-bg.mat'
+
+  local help1 = matio.load(resdir .. dataname, 'data_big')
+  local help2 = matio.load(resdir .. dataname, 'data_small')
+  local help3 = matio.load(resdir .. dataname, 'gt')
+
+  return help1, help2, help3, dataname 
+end
