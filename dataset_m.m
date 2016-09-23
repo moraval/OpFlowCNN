@@ -1,6 +1,9 @@
 function dataset_m()
+rng(0)
 
-datasize = 16;
+datasize = 128;
+% datasize = 1024;
+% datasize = 10;
 size1 = 64;
 size2 = 64;
 
@@ -34,58 +37,75 @@ for i=1:datasize
 	% rec_size_x = datasample([8 4],1);
 	% rec_size_y = datasample([8 4],1);
 
-	% name = strcat('../dataset/textures/', num2str(i), '.jpg');
-	% texture = imread(name);
+	% numi = i + 0;
+	% name = strcat('../dataset/textures/', num2str(numi), '.png');
+	% texture = imread(name, 'png');
 	% s1 = size(texture,1);
 	% s2 = size(texture,2);
-	% h1 = round(s1/2-rec_size_x/1);
-	% h2 = round(s2/2-rec_size_y/1);
+	% h1 = round(s1/2-rec_size_x/2);
+	% h2 = round(s2/2-rec_size_y/2);
+	% bg = zeros(rec_size_x, rec_size_y, 3);
 
-	% bg = texture(h1:h1 + rec_size_x, h2:h2 + rec_size_y, :);
-	% imwrite(bg, strcat('background-', num2str(i), '.png'));
-
-	bg = datasample([0 1],1);
+	% if (size(texture,3) == 1)
+	% 	help = texture(h1:h1 + rec_size_x-1, h2:h2 + rec_size_y-1);
+	% 	bg = cat(3, help, help, help);
+	% else
+	% 	bg = texture(h1:h1 + rec_size_x-1, h2:h2 + rec_size_y-1, 1:3);
+	% end
+	% bg = double(bg) / 256;
+	% imwrite(bg, strcat('background-', num2str(i), '.png'), 'png');
 	
-	randx = floor(randi([round(size1/2-rec_size_x*1.5) round(size1/2+rec_size_x/2)],1));
-	randy = floor(randi([round(size1/2-rec_size_y*1.5) round(size1/2+rec_size_y/2)],1));
-
-	for k = 1:rec_size_x
-		for l = 1:rec_size_y
-			 % data_big(randx+k, randy+l,1:3,i) = bg(k,l,:);
-			 data_big(randx+k, randy+l,1:3,i) = 1;
-		end
+	if (rand < 0.5)
+		bg_small = 0.75 + 0.25 * imgaussfilt(rand(rec_size_x, rec_size_y),1);
+	else
+		bg_small = 0 + 0.20 * imgaussfilt(rand(rec_size_x, rec_size_y),1);
 	end
+	bg = cat(3, bg_small, bg_small, bg_small);
+
+	% randx = floor(randi([round(size1/2-rec_size_x*1.3) round(size1/2+rec_size_x/2.5)],1));
+	% randy = floor(randi([round(size1/2-rec_size_y*1.3) round(size1/2+rec_size_y/2.5)],1));
+
+	randx = floor(randi([round(size1/2-rec_size_x) round(size1/2)],1));
+	randy = floor(randi([round(size1/2-rec_size_y) round(size1/2)],1));
+
+	data_big(randx:randx+rec_size_x-1, randy:randy+rec_size_y-1,1:3,i) = bg;
 
 	randx_small = round(randx/scale);
 	randy_small = round(randy/scale);
 	rec_size_x_sm = rec_size_x/scale;
 	rec_size_y_sm = rec_size_y/scale;
 	
-	shiftx = datasample([-1*scale 1*scale],1);
+	% shifts = nil
+	shifts =  [-1*scale -1*scale; -1*scale 1*scale; 1*scale -1*scale; 1*scale 1*scale];
+	% shifts =  [-1*scale 0; 0 1*scale; 1*scale 0; 0 -1*scale];
+	shift = shifts(randi(4),:);
+	% shift = shifts(randi(8),:);
+	shiftx = shift(1);
+	shifty = shift(2);
 	randx = randx + shiftx;
-	shifty = datasample([-1*scale 1*scale],1);
 	randy = randy + shifty;
 
-	for k = 1:rec_size_x
-		for l = 1:rec_size_y
-			% data_big(randx+k, randy+l,4:6,i) = bg(k,l,:);
-			data_big(randx+k, randy+l,4:6,i) = 1;
-		end
-	end
+	% shiftx = datasample([-1*scale 1*scale],1);
+	% randx = randx + shiftx;
+	% shifty = datasample([-1*scale 1*scale],1);
+	% randy = randy + shifty;
 
-	for k = 1:rec_size_x_sm
-		for l = 1:rec_size_y_sm
-			gt(randx_small+k, randy_small+l,1:1,i) = shiftx/scale;
-			gt(randx_small+k, randy_small+l,2:2,i) = shifty/scale;
-		end
-	end
+	data_big(randx:randx+rec_size_x-1, randy:randy+rec_size_y-1,4:6,i) = bg;
+
+	% size(gt(randx_small:randx_small+rec_size_x_sm-1, randy_small:randy_small+rec_size_y_sm-1,1,i))
+	gt(randx_small:randx_small+rec_size_x_sm-1, randy_small:randy_small+rec_size_y_sm-1,1,i) = shiftx/scale*ones(rec_size_x_sm, rec_size_y_sm);
+	gt(randx_small:randx_small+rec_size_x_sm-1, randy_small:randy_small+rec_size_y_sm-1,2,i) = shifty/scale*ones(rec_size_x_sm, rec_size_y_sm);
+
 	data_small(:,:,:,i) = imresize(data_big(:,:,:,i),1/scale,'bilinear');
 
-	imwrite(data_big(:,:,1:3,i), strcat('data/synt_mat/img/', num2str(i), '_orig.png'));
-	imwrite(data_big(:,:,4:6,i), strcat('data/synt_mat/img/', num2str(i), '_target.png'));
+	% imwrite((gt(:,:,1,i)+1)/2, strcat('data/synt_mat/gt_1_', num2str(i),'.png'), 'png');
+	% imwrite((gt(:,:,2,i)+1)/2, strcat('data/synt_mat/gt_2_', num2str(i),'.png'), 'png');
 
-	imwrite(data_small(:,:,1:3,i), strcat('data/synt_mat/img/', num2str(i), '_orig_sm.png'));
-	imwrite(data_small(:,:,4:6,i), strcat('data/synt_mat/img/', num2str(i), '_target_sm.png'));
+	% imwrite(data_big(:,:,1:3,i), strcat('data/synt_mat/img-test/', num2str(i), '_orig.png'), 'png');
+	% imwrite(data_big(:,:,4:6,i), strcat('data/synt_mat/img-test/', num2str(i), '_target.png'), 'png');
+
+	% imwrite(data_small(:,:,1:3,i), strcat('data/synt_mat/img-test/', num2str(i), '_orig_sm.png'), 'png');
+	% imwrite(data_small(:,:,4:6,i), strcat('data/synt_mat/img-test/', num2str(i), '_target_sm.png'), 'png');
 end
 
 data_small(:,:,1,1);
@@ -94,10 +114,12 @@ data_small = permute(data_small, [4 3 1 2]);
 gt = permute(gt, [4 3 1 2]);
 
 % save('data/synt_mat/train-128-dataset-16-pix.mat','data_big','data_small','gt');
-save('data/synt_mat/validate-16-dataset-16-pix.mat','data_big','data_small','gt');
+% save('data/synt_mat/validate-16-dataset-16-pix.mat','data_big','data_small','gt');
 % save('data/synt_mat/test-big-data-16-pix_only-move_diff-bg.mat','data_big','data_small','gt');
-% save('data/synt_mat/train-data-8-pix_all-dir_diff-bg_just-scaled.mat','data_big','data_small','gt');
-% save('data/synt_mat/data-8x2-pix_all-dir_normed-bg.mat','data_big','data_small','gt');
+
+% save('data/synt_mat/train-1024-dataset-restricted-4-16-pix.mat','data_big','data_small','gt');
+save('data/synt_mat/validate-128-dataset-all-8-16-pix.mat','data_big','data_small','gt');
+
 
 display 'done'
 end
