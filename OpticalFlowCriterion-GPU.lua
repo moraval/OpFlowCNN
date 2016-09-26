@@ -42,13 +42,12 @@ function OpFlowCriterionGPU:updateOutput (flows, images)
 
     image_estimate[i] = image.warp(target, flow, 'bilinear'):cuda()
 
---    total variation 
+    -- total variation 
     a[i][1]:sub(1,size1-1,1,size2):copy(flows[i][1]:sub(2,size1,1,size2))
     a[i][2]:sub(1,size1,1,size2-1):copy(flows[i][1]:sub(1,size1,2,size2))
     b[i][1]:sub(1,size1-1,1,size2):copy(flows[i][2]:sub(2,size1,1,size2))
     b[i][2]:sub(1,size1,1,size2-1):copy(flows[i][2]:sub(1,size1,2,size2))
  
-
     tvhelp = torch.CudaTensor():resizeAs(flows[i])
     tvhelp[1]:copy(a[i][1]):mul(-1)
     tvhelp[2]:copy(b[i][1]):mul(-1)
@@ -58,7 +57,6 @@ function OpFlowCriterionGPU:updateOutput (flows, images)
     flowhelp = torch.CudaTensor():resizeAs(flows[i]):copy(flows[i])
 
     total_variation_der[i] = tvhelp:add(flowhelp:mul(2))
-
     flowhelp:copy(flows[i])
 
     total_variation[i][1]:csub(a[i][1],flowhelp[1]):pow(2):mul(0.5)
@@ -69,7 +67,6 @@ function OpFlowCriterionGPU:updateOutput (flows, images)
     total_variation[i][2]:pow(0.5)
 
     tvhelp:copy(total_variation[i])
-
     total_variation_der[i] = total_variation_der[i]:cdiv(tvhelp:cmax(0.0000001))
   end
 
@@ -98,9 +95,7 @@ function OpFlowCriterionGPU:updateGradInput (flows, images)
 
   self.gradInput = torch.CudaTensor()
   self.gradInput:resizeAs(flows):zero()
-  -- self.gradInput:resizeAs(flows)
 
-  -- print('grads before averaging')
   for i=1,batchSize do
 
     local flow = torch.Tensor(2,size1,size2):copy(flows[i])
@@ -147,12 +142,8 @@ function OpFlowCriterionGPU:updateGradInput (flows, images)
     gradV[minus_V[1]:eq(-1)] = 0
     gradV[minus_V[2]:eq(-1)] = 0
 
-    -- print('before')
-    -- print(self.gradInput[i])
     self.gradInput[i][1]:cmul(differences[i], gradU):mul(1-alfa)
     self.gradInput[i][2]:cmul(differences[i], gradV):mul(1-alfa)
-    -- print('intensity grads')
-    -- print(self.gradInput[i])
 
     gradU = torch.CudaTensor(size1,size2)
     gradV = torch.CudaTensor(size1,size2)
@@ -164,7 +155,6 @@ function OpFlowCriterionGPU:updateGradInput (flows, images)
     TV_minus_U:sub(1,size1-1):copy(total_variation[i][1]:sub(2,size1))
     TV_plus_U:sub(2,size1):copy(total_variation[i][1]:sub(1,size1-1))
 
-    -- gradU:div(gradU:csub(TV_minus_U, TV_plus_U),2)
     gradU = gradU:csub(TV_plus_U, TV_minus_U)
     gradU = gradU:div(2)
     gradU[TV_minus_U:eq(-1)] = 0
@@ -176,39 +166,26 @@ function OpFlowCriterionGPU:updateGradInput (flows, images)
     TV_minus_V:sub(1,size1,1,size2-1):copy(total_variation[i][2]:sub(1,size1,2,size2))
     TV_plus_V:sub(1,size1,2,size2):copy(total_variation[i][2]:sub(1,size1,1,size2-1))
 
-    -- gradV:div(gradV:csub(TV_minus_V, TV_plus_V),2)
     gradV = gradV:csub(TV_plus_V, TV_minus_V)
     gradV = gradV:div(2)
     gradV[TV_minus_V:eq(-1)] = 0
     gradV[TV_plus_V:eq(-1)] = 0
 
-    -- print(gradU)
-    -- print(gradV)
-    -- print(total_variation_der[i])
-    -- total_variation_der[i][1]:cmul(total_variation_der[i][1], gradU)
-    -- total_variation_der[i][2]:cmul(total_variation_der[i][2], gradV)
-    total_variation_der[i][1]:cmul(total_variation[i][1], gradU)
-    total_variation_der[i][2]:cmul(total_variation[i][2], gradV)
+    total_variation_der[i][1]:cmul(total_variation_der[i][1], gradU)
+    total_variation_der[i][2]:cmul(total_variation_der[i][2], gradV)
 
-    -- print('tv grads')
-    -- print(self.total_variation_der[i])
-    
     self.gradInput[i]:add(total_variation_der[i]:mul(alfa))
 
 --    clip to [-1, 1]
     self.gradInput[i][self.gradInput[i]:gt(1)] = 1
     self.gradInput[i][self.gradInput[i]:lt(-1)] = -1
-    -- print(self.gradInput[i])
   end
 
-  -- print('grads after averaging')
 --    batch learning
   gradSums = self.gradInput:sum(1):div(batchSize)
   for i=1,batchSize do
     self.gradInput[i]:copy(gradSums)
   end
-  -- print(self.gradInput[1][1])
-  -- print(self.gradInput[1][2])
 
   return self.gradInput
 end
