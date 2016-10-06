@@ -14,7 +14,7 @@ Custom dataset can be created using matlab script dataset_m.m
 * batchSize - size of the batch
 * print_freq - how often will the results be saved
 * print_img - should the results be saved
-* save_model - should the model be saved (will be saved in models_learned)
+* save_model - should the model be saved (will be saved in models-learned)
 * dataSize - size of the training set
 * valSize - size of the validation set
 
