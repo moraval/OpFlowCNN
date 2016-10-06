@@ -32,11 +32,12 @@ function create_dataset(dir)
   return dataset, targets, GT
 end
 
-function load_dataset()
+function load_dataset(datasize)
   local matio = require 'matio'
 
   local resdir = 'data/synt_mat/'
-  local name = 'train-128-dataset-16-pix.mat'
+--  local name = 'train-1024-dataset-16-pix.mat'
+--  local name = 'train-32-dataset-16-pix-cool-bg.mat'
 --  local name = 'train-data-diff-pix_all-dir_diff-bg_just-scaled.mat'
 --  local name = 'train-data-8-pix_all-dir_diff-bg_just-scaled.ma
 --  local name = 'train-big-data-16-pix_all-dir_diff-bg_just-scaled.mat'
@@ -44,10 +45,20 @@ function load_dataset()
 --  local name = 'train-big-data-16-pix_only-move_cool-bg.mat'
 --  local name = 'train-data-8-pix_all-dir_normed-bg_just-scaled.mat'
 --  local name = 'train-data-diff-1-pix_all-dir_normed-bg_just-scaled.mat'
+
+  -- local name = 'dataset-2000-diff-sizes-4-moves.mat'
+  -- local name = 'dataset-2000-diff-sizes-moves-4-scale-4.mat'
+  -- local name = 'train-1024-dataset-restricted-4-16-pix.mat'
+  -- local name = 'train-1024-dataset1-restricted-4-16-pix.mat'
+  -- local name = 'train-2048-dataset1-restricted-4-16-pix-sc-4.mat'
+  local name = 'train-2048-dataset-same-bg-restricted-4-16-pix-sc-2.mat'
+
   local dataname = resdir .. name
 
-  local datasize = 64
---  'data_big','data_small'
+  -- local datasize = 512
+  -- local datasize = 256
+  -- local datasize = 4
+  -- 'data_big','data_small'
   local help1 = matio.load(dataname, 'data_big'):sub(1,datasize)
   local help2 = matio.load(dataname, 'data_small'):sub(1,datasize)
   local help3 = matio.load(dataname, 'gt'):sub(1,datasize)
@@ -71,17 +82,35 @@ function load_dataset()
   -- return dataset, targets, GT, dataname
 end
 
-function load_val_dataset()
+function load_val_dataset(start, datasize)
   local matio = require 'matio'
 
   local resdir = 'data/synt_mat/'
-  local name = 'validate-16-dataset-16-pix.mat'
+  -- local name = 'validate-128-dataset-all-8-16-pix.mat'
+  -- local name = 'validate-128-dataset1-other-4-16-pix.mat'
+  -- local name = 'validate-128-dataset-16-pix.mat'
+  -- local name = 'validate-16-dataset-16-pix-cool-bg.mat'
+
+  -- local name = 'dataset-2000-diff-sizes-4-moves.mat'
+  -- local name = 'dataset-2000-diff-sizes-moves-4-scale-4.mat'
+  -- local name = 'train-2048-dataset1-restricted-4-16-pix-sc-4.mat'
+  local name = 'train-2048-dataset-same-bg-restricted-4-16-pix-sc-2.mat'
+
   local dataname = resdir .. name
 
---  'data_big','data_small'
-  local help1 = matio.load(dataname, 'data_big')
-  local help2 = matio.load(dataname, 'data_small')
-  local help3 = matio.load(dataname, 'gt')
+  -- 'data_big','data_small'
+  -- local help1 = matio.load(dataname, 'data_big'):sub(1,datasize)
+  -- local help2 = matio.load(dataname, 'data_small'):sub(1,datasize)
+  -- local help3 = matio.load(dataname, 'gt'):sub(1,datasize)
+
+  -- TEST 1:9
+  -- local start = 1901
+  -- local start = 901
+  -- local start = 1
+  start = start + 1
+  local help1 = matio.load(dataname, 'data_big'):sub(start,datasize)
+  local help2 = matio.load(dataname, 'data_small'):sub(start,datasize)
+  local help3 = matio.load(dataname, 'gt'):sub(start,datasize)
 
   return help1, help2, help3, dataname
 end
@@ -94,9 +123,10 @@ function load_dataset_test()
   -- local dataname = 'test-data-8-pix_one-dir_normed-bg_just-scaled.mat'
   local dataname = 'test-big-data-16-pix_only-move_diff-bg.mat'
 
-  local help1 = matio.load(resdir .. dataname, 'data_big')
-  local help2 = matio.load(resdir .. dataname, 'data_small')
-  local help3 = matio.load(resdir .. dataname, 'gt')
+  local datasize = 1
+  local help1 = matio.load(resdir .. dataname, 'data_big'):sub(1,datasize)
+  local help2 = matio.load(resdir .. dataname, 'data_small'):sub(1,datasize)
+  local help3 = matio.load(resdir .. dataname, 'gt'):sub(1,datasize)
 
   return help1, help2, help3, dataname 
 end
