@@ -14,11 +14,14 @@ local method = 'flow'
 
 function create_model(channels, size1, size2, batchSize)
 
+  local s1 = 64
+  local s2 = 64
+
   local function conv(nIn, nOut, k, s, p)
     local layer = nn.Sequential()
     layer:add(cudnn.SpatialConvolution(nIn,nOut,k,k,s,s,p,p))
     layer = require('weight-init.lua')(layer, method)
-    layer:add(cudnn.SpatialBatchNormalization(nOut))
+    -- layer:add(cudnn.SpatialBatchNormalization(nOut))
     layer:add(nn.HardTanh(-10,10))
     return layer
   end
@@ -27,7 +30,7 @@ function create_model(channels, size1, size2, batchSize)
     local layer = nn.Sequential()
     layer:add(cudnn.SpatialFullConvolution(nIn,nOut,k,k,s,s,p,p))
     layer = require('weight-init.lua')(layer, method)
-    layer:add(cudnn.SpatialBatchNormalization(nOut))
+    -- layer:add(cudnn.SpatialBatchNormalization(nOut))
     layer:add(nn.HardTanh(-10,10))
     return layer
   end
@@ -36,7 +39,7 @@ function create_model(channels, size1, size2, batchSize)
     local layer = nn.Sequential()
     layer:add(cudnn.VolumetricConvolution(nIn, nOut, kT, k, k,sT,s,s,pT,p,p))
     layer = require('weight-init.lua')(layer, method)
-    layer:add(nn.VolumetricBatchNormalization(nOut))
+    -- layer:add(nn.VolumetricBatchNormalization(nOut))
     layer:add(nn.HardTanh(-10,10))
     return layer
   end
@@ -65,9 +68,9 @@ local function combine(layer)
   local p = 0.2
 
   if batchSize > 1 then
-    model:add(nn.View(batchSize,1,6,64,64))
+    model:add(nn.View(batchSize,1,6,s1,s2))
   else
-    model:add(nn.View(1,1,6,64,64))
+    model:add(nn.View(1,1,6,s1,s2))
   end
 
   model:add(conv3d(1, L1_chan, 3, 3, 3, 1, 0, 1))
@@ -76,31 +79,37 @@ local function combine(layer)
   model:add(nn.VolumetricDropout(p))
 
   if batchSize > 1 then
-    model:add(nn.View(2*2,64,64))
+    model:add(nn.View(2*2,s1,s2))
     model:add(nn.Squeeze())
   else
-    model:add(nn.View(1,2*2,64,64))
+    model:add(nn.View(1,2*2,s1,s2))
   end
 
-  model:add(conv(2*2, L1_chan, 11, 2, 5))
+  -- model:add(conv(2*2, L1_chan, 11, 2, 5))
+  model:add(conv(2*2, L1_chan, 15, 2, 7))
+  model:add(conv(L1_chan, L1_chan, 11, 1, 5))
   model:add(conv(L1_chan, L2_chan, 11, 1, 5))
-  model:add(conv(L2_chan, L2_chan, 7, 2, 3))
-  model:add(conv(L2_chan, L3_chan, 7, 1, 3))
-
   model:add(nn.SpatialDropout(p))
-  model:add(conv(L3_chan, L3_chan, 3, 1, 1))
 
   local L = nn.Sequential()
+  L:add(conv(L2_chan, L2_chan, 7, 2, 3))
+  L:add(conv(L2_chan, L3_chan, 7, 1, 3))
+  L:add(nn.SpatialDropout(p))
+  L:add(conv(L3_chan, L3_chan, 5, 1, 2))
+  L:add(conv(L3_chan, L3_chan, 3, 1, 1))
+
   L:add(conv(L3_chan, L4_chan, 5, 2, 2))
   L:add(nn.SpatialDropout(p))
   L:add(conv(L4_chan, L3_chan, 3, 1, 1))
+  
   L:add(deconv(L3_chan, L3_chan, 6, 2, 2))
+  L:add(deconv(L3_chan, L2_chan, 8, 2, 3))
 
   model:add(combine(L))
 
-  model:add(conv(L3_chan, L2_chan, 11, 1, 5))
+  model:add(conv(L2_chan, L1_chan, 11, 1, 5))
   model:add(nn.SpatialDropout(p))
-  model:add(conv(L2_chan, 2, 1, 1, 0))
+  model:add(conv(L1_chan, 2, 1, 1, 0))
 
 --  reset weights
   model = require('weight-init.lua')(model, method)
